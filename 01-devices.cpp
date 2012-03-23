@@ -24,6 +24,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "timers/CPrecisionClock.h"
+#include <iostream>
+#include <fstream>
+using namespace std;
+// HDAL
+#include <hdl/hdl.h>
+#include <hdlu/hdlu.h>
+#include <string>
+
+#include <cstdlib>
+
+
 //---------------------------------------------------------------------------
 #include "chai3d.h"
 //---------------------------------------------------------------------------
@@ -42,11 +54,20 @@ const int OPTION_WINDOWDISPLAY  = 2;
 
 // maximum number of haptic devices supported in this demo
 const int MAX_DEVICES           = 8;
+const double EndTime			= 3600;
+const double StartTime			= 1;
 
 
 //---------------------------------------------------------------------------
 // DECLARED VARIABLES
 //---------------------------------------------------------------------------
+// Handle to device
+HDLDeviceHandle deviceHandle[MAX_DEVICES];
+
+// Handle to Contact Callback
+HDLServoOpExitCode servoOp;
+
+cPrecisionClock* clock;
 
 // a world that contains all objects of the virtual environment
 cWorld* world;
@@ -63,6 +84,15 @@ cBitmap* logo;
 // width and height of the current window display
 int displayW  = 0;
 int displayH  = 0;
+
+double Kp = 600.0; // [N/m]
+double Kd = 10.0;
+double Ki = 1;
+
+
+const int MAX_FREQ_NUM = 1;
+double Freq[MAX_FREQ_NUM];
+int Freq_count = 0;
 
 // a haptic device handler
 cHapticDeviceHandler* handler;
@@ -95,13 +125,36 @@ bool simulationRunning = false;
 string resourceRoot;
 
 // damping mode ON/OFF
-bool useDamping = false;
+bool useDamping = true;
 
 // force field mode ON/OFF
 bool useForceField = true;
 
 // has exited haptics simulation thread
 bool simulationFinished = false;
+
+bool write_to_file = true;
+
+bool EnableHaptics = true;
+
+
+ofstream output[MAX_DEVICES];
+
+struct HapticDevice
+{
+    HDLDeviceHandle handle;
+    double workspaceDims[6];
+    cVector3d pos;
+	cVector3d vel;
+	double time;
+	cVector3d error; //Distance from desired trajectory
+    double transformMat[16];
+    cVector3d force;
+    bool   button;
+	char* devicename;
+};
+
+HapticDevice hd[2];
 
 //---------------------------------------------------------------------------
 // DECLARED MACROS
@@ -132,6 +185,7 @@ void updateGraphics(void);
 // main haptics loop
 void updateHaptics(void);
 
+cVector3d gravity_compensate(cVector3d);
 
 //===========================================================================
 /*
@@ -181,6 +235,9 @@ int main(int argc, char* argv[])
     //-----------------------------------------------------------------------
     // 3D - SCENEGRAPH
     //-----------------------------------------------------------------------
+
+	clock = new cPrecisionClock();
+
 
     // create a new world.
     world = new cWorld();
@@ -253,13 +310,18 @@ int main(int argc, char* argv[])
     //-----------------------------------------------------------------------
 
     // create a haptic device handler
-    handler = new cHapticDeviceHandler();
+    //handler = new cHapticDeviceHandler();
 
     // read the number of haptic devices currently connected to the computer
-    numHapticDevices = handler->getNumDevices();
+    //numHapticDevices = handler->getNumDevices();
+	numHapticDevices = hdlCountDevices();
 
     // limit the number of devices to MAX_DEVICES
     numHapticDevices = cMin(numHapticDevices, MAX_DEVICES);
+
+
+	hd[0].devicename = "falcon1";
+	hd[1].devicename = "falcon2";
 
     // create a node on which we will attach small labels that display the
     // position of each haptic device
@@ -278,23 +340,65 @@ int main(int argc, char* argv[])
     // for each available haptic device, create a 3D cursor
     // and a small line to show velocity
     int i = 0;
+	std::cout << "Number of devices: " <<numHapticDevices <<std::endl;
+
+	double Freqmin;
+	double Freqmax;
+
+	cout<<"Enter the input frequency range"<<endl;
+	cout<<"Min: ";
+	cin>>Freqmin;
+	cout<<"Max: ";
+	cin>>Freqmax;
+
+	Freq[0] = Freqmin;
+	for(int i = 1; i < MAX_FREQ_NUM; i++)
+	{
+		Freq[i] = Freq[i-1] + (Freqmax - Freqmin)/(MAX_FREQ_NUM-1);
+
+	}
     while (i < numHapticDevices)
     {
         // get a handle to the next haptic device
-        cGenericHapticDevice* newHapticDevice;
-        handler->getDevice(newHapticDevice, i);
+        //cGenericHapticDevice* newHapticDevice;
+        //handler->getDevice(newHapticDevice, i);
+
+
+		/*switch (i) {
+			case 0:
+				std::cout << "HDAL: hdlInitDevice 1" << std::endl;
+				deviceHandle[i] = hdlInitNamedDevice("FALCON_1");
+				break;
+			case 1:
+				std::cout << "HDAL: hdlInitDevice 2" << std::endl;
+				deviceHandle[i] = hdlInitNamedDevice("FALCON_2");
+				break;
+		}*/
+		hd[i].handle = hdlInitNamedDevice(hd[i].devicename);
+
+		// Init device data
+		hd[i].pos.zero();
+		hd[i].vel.zero();
+		hd[i].error.zero();
+		hd[i].time = 0;
+
+		if (hd[i].handle == HDL_INVALID_HANDLE)
+		{
+			std::cout << "Could not open device: HDL_INVALID_HANDLE" << std::endl;
+			exit(1);
+		}
 
         // open connection to haptic device
-        newHapticDevice->open();
+        //newHapticDevice->open();
 
 		// initialize haptic device
-		newHapticDevice->initialize();
+		//newHapticDevice->initialize();
 
         // store the handle in the haptic device table
-        hapticDevices[i] = newHapticDevice;
+        //hapticDevices[i] = newHapticDevice;
 
         // retrieve information about the current haptic device
-        cHapticDeviceInfo info = newHapticDevice->getSpecifications();
+        //cHapticDeviceInfo info = newHapticDevice->getSpecifications();
 
         // create a cursor by setting its radius
         cShapeSphere* newCursor = new cShapeSphere(0.01);
@@ -315,7 +419,7 @@ int main(int argc, char* argv[])
         // create a string that concatenates the device number and model name.
         string strID;
         cStr(strID, i);
-        string strDevice = "#" + strID + " - " +info.m_modelName;
+        string strDevice = "#" + strID + " - ";
 
         // attach a small label next to the cursor to indicate device information
         cLabel* newLabel = new cLabel();
@@ -326,14 +430,14 @@ int main(int argc, char* argv[])
 
         // if the device provided orientation sensing (stylus), a reference
         // frame is displayed
-        if (info.m_sensedRotation == true)
+        /*if (info.m_sensedRotation == true)
         {
             // display a reference frame
             newCursor->setShowFrame(true);
 
             // set the size of the reference frame
             newCursor->setFrameSize(0.05, 0.05);
-        }
+        }*/
 
         // crate a small label to indicate the position of the device
         cLabel* newPosLabel = new cLabel();
@@ -342,9 +446,33 @@ int main(int argc, char* argv[])
         newPosLabel->m_fontColor.set(0.6, 0.6, 0.6);
         labels[i] = newPosLabel;
 
+
+		string strLabel = "H:\\course\\EECS567\\project\\data\\";
+		strLabel += hd[i].devicename;
+		strLabel += "\\f";
+
+		cStr(strLabel, Freq[Freq_count], 2);
+
+		strLabel += ".txt";
+		const char * c = strLabel.c_str();
+
+		if (write_to_file)
+			cout<<"Output file name is: "<<strLabel<<endl;
+
+		output[i].open (c);
         // increment counter
         i++;
     }
+
+	// starts servo and all haptic devices.
+	std::cout << "HDAL: hdlStart" << std::endl;
+	hdlStart();
+
+	// sets callback for the nonblocking servo loop
+	//std::cout << "HDAL: hdlCreateServoOp" << std::endl;
+	//hdlCreateServoOp(NonBlockingServoOpCallback, NULL, bNonBlocking);
+
+	// make a specific haptic device current
 
     // here we define the material properties of the cursor when the
     // user button of the device end-effector is engaged (ON) or released (OFF)
@@ -358,6 +486,9 @@ int main(int argc, char* argv[])
     matCursorButtonON.m_ambient.set(0.1, 0.1, 0.4);
     matCursorButtonON.m_diffuse.set(0.3, 0.3, 0.8);
     matCursorButtonON.m_specular.set(1.0, 1.0, 1.0);
+
+
+
 
 
     //-----------------------------------------------------------------------
@@ -397,6 +528,7 @@ int main(int argc, char* argv[])
 
     // simulation in now running
     simulationRunning = true;
+	clock->start(true);
 
     // create a thread which starts the main haptics rendering loop
     cThread* hapticsThread = new cThread();
@@ -453,8 +585,23 @@ void keySelect(unsigned char key, int x, int y)
         }
     }
 
+	if (key == '[')
+		Kp -= 10;
+	if (key == ']')
+		Kp += 10;
+	if (key == 'l')
+		Ki -= .1;
+	if (key == ';')
+		Ki += .1;
+	if (key == ',')
+		Kd -= 1;
+	if (key == '.')
+		Kd += 1;
+	if (key == 'e')
+		EnableHaptics = !EnableHaptics;
+
     // option 2:
-    if (key == '2')
+    /*if (key == '2')
     {
         useDamping = !useDamping;
         if (useDamping)
@@ -465,7 +612,7 @@ void keySelect(unsigned char key, int x, int y)
         {
             printf ("- Disable viscosity\n");
         }
-    }
+    }*/
 }
 
 //---------------------------------------------------------------------------
@@ -501,6 +648,7 @@ void close(void)
     while (i < numHapticDevices)
     {
         hapticDevices[i]->close();
+		output[i].close();
         i++;
     }
 }
@@ -510,25 +658,56 @@ void close(void)
 void updateGraphics(void)
 {
     // update content of position label
+	double newTime = clock->getCurrentTimeSeconds();
     for (int i=0; i<numHapticDevices; i++)
     {
         // read position of device an convert into millimeters
-        cVector3d pos;
-        hapticDevices[i]->getPosition(pos);
-        pos.mul(1000);
+		//hdlMakeCurrent(deviceHandle[i]);
+		cVector3d pos;
+		double positionServo[3];
+
+		//hdlToolPosition(positionServo);
+		pos = hd[i].force;
+
+        //hapticDevices[i]->getPosition(pos);
+        //pos.mul(1000);
+
 
         // create a string that concatenates the device number and its position.
         string strID;
         cStr(strID, i);
         string strLabel = "#" + strID + "  x: ";
-
-        cStr(strLabel, pos.x, 2);
+        cStr(strLabel, pos.x, 5);
         strLabel = strLabel + "   y: ";
-        cStr(strLabel, pos.y, 2);
+        cStr(strLabel, pos.y, 5);
         strLabel = strLabel + "  z: ";
-        cStr(strLabel, pos.z, 2);
+        cStr(strLabel, pos.z, 5);
+		strLabel = strLabel + "  t: ";
+		cStr(strLabel, newTime, 2);
+
+		strLabel = strLabel + "  Kp: ";
+		cStr(strLabel, Kp, 2);
+
+		strLabel = strLabel + "  Ki: ";
+		cStr(strLabel, Ki, 2);
+
+		strLabel = strLabel + "  Kd: ";
+		cStr(strLabel, Kd, 2);
 
         labels[i]->m_string = strLabel;
+
+		string strLabel2 = "";
+		cStr(strLabel2, pos.x, 5);
+		strLabel2 += " ";
+		cStr(strLabel2, pos.y, 5);
+		strLabel2 += " ";
+		cStr(strLabel2, pos.z, 5);
+		strLabel2 += " ";
+		cStr(strLabel2, clock->getCurrentTimeSeconds(), 5);
+		strLabel2 += "\n";
+
+		if (write_to_file)
+			output[i]<<strLabel2;
     }
 
     // render world
@@ -541,6 +720,38 @@ void updateGraphics(void)
     GLenum err;
     err = glGetError();
     if (err != GL_NO_ERROR) printf("Error:  %s\n", gluErrorString(err));
+	if (newTime>=EndTime)
+	{
+
+		clock->reset();
+
+		Freq_count++;
+		if (Freq_count<MAX_FREQ_NUM)
+		{
+			for (int i = 0; i<numHapticDevices; i++)
+			{
+				output[i].close();
+				hd[i].error.zero();
+				string strLabel = "H:\\course\\EECS567\\project\\data\\";
+				strLabel += hd[i].devicename;
+				strLabel += "\\f";
+				cStr(strLabel, Freq[Freq_count], 2);
+
+				strLabel += ".txt";
+				const char * c = strLabel.c_str();
+
+				if (write_to_file)
+					cout<<"Output file name is: "<<strLabel<<endl;
+
+				output[i].open (c);
+			}
+		}
+		else
+		{
+			simulationRunning = false;
+		}
+
+	}
 
     // inform the GLUT window to call updateGraphics again (next frame)
     if (simulationRunning)
@@ -558,42 +769,42 @@ void updateHaptics(void)
     {
         // for each device
         int i=0;
+		double newTime = clock->getCurrentTimeSeconds();
         while (i < numHapticDevices)
         {
+			hdlMakeCurrent(hd[i].handle);
+
             // read position of haptic device
             cVector3d newPosition;
-            hapticDevices[i]->getPosition(newPosition);
-
-            // read orientation of haptic device
-            cMatrix3d newRotation;
-            hapticDevices[i]->getRotation(newRotation);
+			cVector3d errorPosition;
+            //hapticDevices[i]->getPosition(newPosition);
+			double positionServo[3];
+			double force[3];
+			hdlToolPosition(positionServo);
+			newPosition.x = positionServo[2];
+			newPosition.y = positionServo[0];
+			newPosition.z = positionServo[1];
 
             // update position and orientation of cursor
             cursors[i]->setPos(newPosition);
-            cursors[i]->setRot(newRotation);
+            //cursors[i]->setRot(newRotation);
 
             // read linear velocity from device
             cVector3d linearVelocity;
-            hapticDevices[i]->getLinearVelocity(linearVelocity);
+			cVector3d errorVelocity;
+			newPosition.subr(hd[i].pos, linearVelocity);
+			double interval = newTime - hd[i].time;
+			cout<<interval<<endl;
+			if (interval>0)
+				linearVelocity.div(interval);
+			else
+				linearVelocity.zero();
+            //hapticDevices[i]->getLinearVelocity(linearVelocity);
 
             // update arrow
             velocityVectors[i]->m_pointA = newPosition;
             velocityVectors[i]->m_pointB = cAdd(newPosition, linearVelocity);
 
-            // read user button status
-            bool buttonStatus;
-            hapticDevices[i]->getUserSwitch(0, buttonStatus);
-
-            // adjustthe  color of the cursor according to the status of
-            // the user switch (ON = TRUE / OFF = FALSE)
-            if (buttonStatus)
-            {
-                cursors[i]->m_material = matCursorButtonON;
-            }
-            else
-            {
-                cursors[i]->m_material = matCursorButtonOFF;
-            }
 
             // compute a reaction force
             cVector3d newForce (0,0,0);
@@ -601,30 +812,225 @@ void updateHaptics(void)
             // apply force field
             if (useForceField)
             {
-                double Kp = 20.0; // [N/m]
-                cVector3d force = cMul(-Kp, newPosition);
-                newForce.add(force);
-            }
-        
-            // apply viscosity
-            if (useDamping)
-            {
-                cHapticDeviceInfo info = hapticDevices[i]->getSpecifications();
-                double Kv = info.m_maxLinearDamping;
-                cVector3d force = cMul(-Kv, linearVelocity);
-                newForce.add(force);
-            }
+				if (newTime<StartTime)
+				{
+					newPosition.add(0, 0, 0);
+					force[0] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
+					force[1] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
+					force[2] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
+				}
+				else if(newTime<EndTime)
+				{
 
-            // send computed force to haptic device
-            hapticDevices[i]->setForce(newForce);
+
+					/*errorPosition = newPosition;
+					errorVelocity = linearVelocity;
+					//cout<<errorVelocity.y<<endl;
+					errorPosition.add(0, -0.04*cSinRad(2*3.14/T*(newTime-1)), -0.04*cCosRad(2*3.14/T*(newTime-1)));	
+					errorVelocity.add(0, -0.04*2*3.14/T*cCosRad(2*3.14/T*(newTime-1)),0.04*2*3.14/T*cSinRad(2*3.14/T*(newTime-1)));
+					hd[i].error +=errorPosition;
+					linearVelocity.add(0, 0, 0);
+					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
+					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
+					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;*/
+
+errorPosition = newPosition - hd[1-i].pos;
+					//errorPosition.add(0, -hd[1-i].pos.y, 0);
+					errorVelocity = linearVelocity - hd[1-i].vel;
+					//errorVelocity.add(0, -hd[1-i].vel.y, 0);
+					hd[i].error +=errorPosition;
+
+					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
+					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
+					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;
+
+
+				}
+				if (i==1 && !EnableHaptics)
+				{
+					double f = Freq[Freq_count]; // in Hz
+					double T = 1/f;
+					//force[0] += 5*cSinRad(2*3.14/T*(newTime-StartTime));
+					force[0] = 0;
+					force[1] = 0;
+					force[2] = 0;
+
+				}
+
+
+
+				/*cVector3d Fg = gravity_compensate(newPosition);
+				force[0] += Fg.y;
+				force[1] += Fg.z;
+				force[2] += Fg.x;*/
+
+
+				hdlSetToolForce(force);
+				hd[i].pos = newPosition;
+				hd[i].vel = linearVelocity;
+				hd[i].time = newTime;
+				hd[i].force.x = force[2];
+				hd[i].force.y = force[0];
+				hd[i].force.z = force[1];
+
+			}
 
             // increment counter
             i++;
+
+
         }
+
     }
     
     // exit haptics thread
+
+
+
     simulationFinished = true;
 }
 
 //---------------------------------------------------------------------------
+// User defined functions
+cVector3d gravity_compensate(cVector3d newPosition)
+{
+		//Get position of a Falcon end effector in its co-ordinate frame and transfer it to the Base frame
+		//co-ordinate frame
+		const double Pzo = 0.134;	//	Zero-Configuration z-offset
+		double px = (newPosition.y);
+		double py = (newPosition.z);
+		double pz = (newPosition.x) + Pzo;
+
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////
+		//Computing the position of point P with respect to individial motor co-ordinate frames
+		//Transfering from Base frame co-ordinate frame to motor co-ordinate frame
+		////////////////////////////////////////////////////////////////////////////////////////////////////////
+		const double r   = 0.03723;	//	Radius of Back Plate
+		const double Pvo = 0.022;   //  Zero-Configuration v-offset
+
+		//Other parameters
+		const double pi = 3.141592653589793;
+		int j;
+
+		//Motor Joint Angles    (Unit: radians)
+		const double phi[3] = {105.0*pi/180.0, -15.0*pi/180.0, -135.0*pi/180.0};
+
+		//Motor co-ordinate frames
+		double Pv[3], Pw[3], Pu[3];
+
+
+		for(j=0;j<3;j++)
+		{
+			Pu[j] = (cos(phi[j]) * px)  + (sin(phi[j])* py)  - r;	
+			Pv[j] = -(sin(phi[j])* px)  + (cos(phi[j]) * py) + Pvo;
+			Pw[j] = pz;
+		}
+
+
+		//////////////////////////////////////////////////////////////////////////////////////////////////////////
+		//Computing Inverse Kinematics
+		//////////////////////////////////////////////////////////////////////////////////////////////////////////
+		double T1[3];
+		double L0[3], L1[3], L2[3];
+		double theta1[3], theta2[3], theta3[3]; // Joint Angles
+
+		//Dimensions of different parameters (Unit: meter)
+		const double s  =  0.025;    // Back plate Actuator Offset
+		const double b  =  0.103;    // Length of Parallel Link
+		const double a  =  0.060;    // Length of Curved Link
+		const double d  =  0.011;    // Length of Joint Link    
+		const double c	=  0.0157;	 //	Radius of Front Plate
+
+		for(j=0;j<3;j++)
+		{
+			//Calculating theta3
+			theta3[j] = acos( (Pv[j] - s) /b);
+
+			L0[j] = pow(Pw[j],2.0) + pow(Pu[j],2) + (2.0 * c * Pu[j]) - (4.0 * pow(d,2)) - (pow(b,2) * pow(sin(theta3[j]),2)) - (4.0 * b * d * sin(theta3[j])) - (2.0 * a * Pu[j]) + pow((a-c),2);
+			L1[j] = -4.0 * a * Pw[j];
+			L2[j] = pow(Pw[j],2.0) + pow(Pu[j],2) + (2.0 * c * Pu[j]) - (4.0 * pow(d,2)) - (pow(b,2) * pow(sin(theta3[j]),2)) - (4.0 * b * d * sin(theta3[j])) + (2.0 * a * Pu[j]) + pow((a+c),2);
+			T1[j] = (-L1[j] - sqrt(pow(L1[j],2) - (4.0*L2[j]*L0[j]))) / (2.0*L2[j]);
+
+			//Calculating theta1
+			theta1[j] = 2.0 * atan(T1[j]);
+       
+			//Calculating theta2
+			theta2[j] = atan((Pw[j] - (a * sin(theta1[j])))/(Pu[j] - (a * cos(theta1[j])) + c) );
+		}
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		//Computing the Jacobian Matrix
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		cMatrix3d JF;
+		double JF1[3], JF2[3], JF3[3];
+		for(j=0;j<3;j++)
+		{
+			JF1[j] =	cos(theta2[j]) * sin(theta3[j]) * cos(phi[j])      - cos(theta3[j]) * sin(phi[j]);
+			JF2[j] =	cos(theta3[j]) * cos(phi[j])    + cos(theta2[j]) * sin(theta3[j]) * sin(phi[j]);
+			JF3[j] =	sin(theta2[j]) * sin(theta3[j]);
+		}
+		JF.set(JF1[0],JF2[0],JF3[0],JF1[1],JF2[1],JF3[1],JF1[2],JF2[2],JF3[2]);
+
+		/////////////////////////////////////////////////////
+		cMatrix3d JI;
+		double JI1[3];
+		for(j=0;j<3;j++)
+		{
+			JI1[j] =	a*sin(theta2[j] - theta1[j])*sin(theta3[j]);
+		}
+		JI.set(JI1[0],0.0,0.0,0.0,JI1[1],0.0,0.0,0.0,JI1[2]);
+
+		/////////////////////////////////////////////////////
+		cMatrix3d J;
+		cMatrix3d Jinv;
+		cMatrix3d JIinv;
+		cMatrix3d JT;
+		JI.invertr(JIinv);
+		JIinv.mulr(JF,J);
+		J.transr(JT);
+		cMatrix3d JTinv;
+		JT.invertr(JTinv);
+
+		///////////////////////////////////////////////////////////////////////////////////////////////////////
+		//Computing Gravitational Torque
+		///////////////////////////////////////////////////////////////////////////////////////////////////////
+		//Masses of different parts of Falcon (Units in kilograms)
+		const double me = 0.052;	//  Mass of modified falcon grip
+		const double mc = 0.03278;  //  Mass of moving plate
+		const double mb = 0.00841;  //  Mass of parallel link
+		const double md = 0.01037;  //  Mass of joint link
+		const double ma = 0.08935;  //  Mass of curved link
+	    cVector3d Ga_Torque;        //Gravitational Torque
+		cVector3d Gb_Torque;        //Gravitational Torque
+		cVector3d Gc_Torque;        //Gravitational Torque
+		cVector3d Tg;               //Total gravitational torque
+
+		//Different lengths of Falcon Parts(Units in meter)
+		const double q   = 0.022;   //  Length of center of mass of curved link from motor joint
+
+		//Other variables defined
+		const double g  = 9.815; //Magnitude of Gravity - m/s^2
+
+		double m_a = g * ma * q;
+		Ga_Torque.set( m_a * sin((100.0*3.14/180.0) - theta1[0]) * sin(phi[0]) , m_a * sin((100.0*3.14/180.0) - theta1[1]) * sin(phi[1]) , m_a * sin((100.0*3.14/180.0) - theta1[2]) * sin(phi[2]) );
+
+		double m_b = a * g * (mb + md);
+		Gb_Torque.set( m_b * sin(theta1[0]) * sin(phi[0]) , m_b * sin(theta1[1]) * sin(phi[1]) , m_b * sin(theta1[2]) * sin(phi[2]) );
+		cVector3d Gc_Force;
+		Gc_Force.x = 0.0;
+		Gc_Force.y = (3.0* (mb+md) + mc + me) * g;
+		Gc_Force.z = 0.0;
+		JTinv.mulr(Gc_Force,Gc_Torque);
+
+		// Computing total gravitational torque
+		Tg = Ga_Torque - Gb_Torque + Gc_Torque;
+
+		// Computing the required gravity force from gravitational torque
+		cVector3d Gravity;
+		JT.mulr(Tg,Gravity);
+
+		// Converting from back plate to Falcons Co-ordinate system
+		cVector3d Fg;
+		Fg.set(Gravity.z,Gravity.x,Gravity.y);
+		return Fg;
+}
