@@ -1,0 +1,5 @@
+Debug/*
+src/*
+*.log
+*.user
+*.vcproj
