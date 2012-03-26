@@ -39,7 +39,7 @@ using namespace std;
 //---------------------------------------------------------------------------
 #include "chai3d.h"
 //---------------------------------------------------------------------------
-
+#include <windows.h>
 //---------------------------------------------------------------------------
 // DECLARED CONSTANTS
 //---------------------------------------------------------------------------
@@ -85,9 +85,9 @@ cBitmap* logo;
 int displayW  = 0;
 int displayH  = 0;
 
-double Kp = 600.0; // [N/m]
-double Kd = 10.0;
-double Ki = 1;
+double Kp = 60.0; // [N/m] 600
+double Kd = 1.0; // 10
+double Ki = 3;
 
 
 const int MAX_FREQ_NUM = 1;
@@ -128,7 +128,7 @@ string resourceRoot;
 bool useDamping = true;
 
 // force field mode ON/OFF
-bool useForceField = true;
+bool useForceField = false;
 
 // has exited haptics simulation thread
 bool simulationFinished = false;
@@ -186,7 +186,7 @@ void updateGraphics(void);
 void updateHaptics(void);
 
 cVector3d gravity_compensate(cVector3d);
-
+FILE *plik;
 //===========================================================================
 /*
     DEMO:    device.cpp
@@ -320,8 +320,8 @@ int main(int argc, char* argv[])
     numHapticDevices = cMin(numHapticDevices, MAX_DEVICES);
 
 
-	hd[0].devicename = "falcon1";
-	hd[1].devicename = "falcon2";
+	hd[0].devicename = "FALCON_1";
+	hd[1].devicename = "FALCON_2";
 
     // create a node on which we will attach small labels that display the
     // position of each haptic device
@@ -374,7 +374,8 @@ int main(int argc, char* argv[])
 				deviceHandle[i] = hdlInitNamedDevice("FALCON_2");
 				break;
 		}*/
-		hd[i].handle = hdlInitNamedDevice(hd[i].devicename);
+		//hd[i].handle = hdlInitNamedDevice(hd[i].devicename);
+		hd[i].handle = hdlInitIndexedDevice(i);
 
 		// Init device data
 		hd[i].pos.zero();
@@ -401,7 +402,7 @@ int main(int argc, char* argv[])
         //cHapticDeviceInfo info = newHapticDevice->getSpecifications();
 
         // create a cursor by setting its radius
-        cShapeSphere* newCursor = new cShapeSphere(0.01);
+        cShapeSphere* newCursor = new cShapeSphere(0.000000001);
 
         // add cursor to the world
         world->addChild(newCursor);
@@ -447,7 +448,7 @@ int main(int argc, char* argv[])
         labels[i] = newPosLabel;
 
 
-		string strLabel = "H:\\course\\EECS567\\project\\data\\";
+		string strLabel = "H:\\plik_";
 		strLabel += hd[i].devicename;
 		strLabel += "\\f";
 
@@ -657,6 +658,7 @@ void close(void)
 
 void updateGraphics(void)
 {
+
     // update content of position label
 	double newTime = clock->getCurrentTimeSeconds();
     for (int i=0; i<numHapticDevices; i++)
@@ -732,7 +734,7 @@ void updateGraphics(void)
 			{
 				output[i].close();
 				hd[i].error.zero();
-				string strLabel = "H:\\course\\EECS567\\project\\data\\";
+				string strLabel = "H:\\plik_";
 				strLabel += hd[i].devicename;
 				strLabel += "\\f";
 				cStr(strLabel, Freq[Freq_count], 2);
@@ -764,9 +766,11 @@ void updateGraphics(void)
 
 void updateHaptics(void)
 {
+	plik=fopen("baza_RD.txt", "w"); 
     // main haptic simulation loop
     while(simulationRunning)
     {
+			Sleep(7);
         // for each device
         int i=0;
 		double newTime = clock->getCurrentTimeSeconds();
@@ -785,6 +789,8 @@ void updateHaptics(void)
 			newPosition.y = positionServo[0];
 			newPosition.z = positionServo[1];
 
+			
+
             // update position and orientation of cursor
             cursors[i]->setPos(newPosition);
             //cursors[i]->setRot(newRotation);
@@ -794,13 +800,15 @@ void updateHaptics(void)
 			cVector3d errorVelocity;
 			newPosition.subr(hd[i].pos, linearVelocity);
 			double interval = newTime - hd[i].time;
-			cout<<interval<<endl;
+			//cout<<interval<<endl;
 			if (interval>0)
 				linearVelocity.div(interval);
 			else
 				linearVelocity.zero();
             //hapticDevices[i]->getLinearVelocity(linearVelocity);
 
+			printf("pos i %d %lf %lf %lf\n", i, newPosition.x, newPosition.y, newPosition.z);
+			fprintf(plik,"%d\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, newPosition.x, newPosition.y, newPosition.z, linearVelocity.x, linearVelocity.y, linearVelocity.z);
             // update arrow
             velocityVectors[i]->m_pointA = newPosition;
             velocityVectors[i]->m_pointB = cAdd(newPosition, linearVelocity);
