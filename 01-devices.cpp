@@ -44,6 +44,8 @@ using namespace std;
 // DECLARED CONSTANTS
 //---------------------------------------------------------------------------
 
+double force[3];
+double last_force[2][3];
 // initial size (width/height) in pixels of the display window
 const int WINDOW_SIZE_W         = 600;
 const int WINDOW_SIZE_H         = 600;
@@ -601,6 +603,20 @@ void keySelect(unsigned char key, int x, int y)
 	if (key == 'e')
 		EnableHaptics = !EnableHaptics;
 
+	if (key == 'q')
+		last_force[1][0] -= 0.5;
+	if (key == 'w')
+		last_force[1][0] += 0.5;
+
+	if (key == 'a')
+		last_force[1][1] -= 0.5;
+	if (key == 's')
+		last_force[1][1] += 0.5;
+
+	if (key == 'c')
+		last_force[1][2] -= 0.5;
+	if (key == 'v')
+		last_force[1][2] += 0.5;
     // option 2:
     /*if (key == '2')
     {
@@ -648,7 +664,10 @@ void close(void)
     int i=0;
     while (i < numHapticDevices)
     {
-        hapticDevices[i]->close();
+        //hd[i]->close();
+		//hdlDestroyServoOp();
+		hdlStop();
+		hdlUninitDevice(hd[i].handle);
 		output[i].close();
         i++;
     }
@@ -873,6 +892,25 @@ errorPosition = newPosition - hd[1-i].pos;
 				force[2] += Fg.x;*/
 
 
+				//czy uzyc stalej sily do testow - zmiana wart sil - q,w, a,s, z,x 
+				int const_force = false;
+
+				//ktory falcon 
+				int which_falcon = 1;
+				if(const_force){
+					if(i = which_falcon){
+
+					force[0] = last_force[i][0];
+					force[1] = last_force[i][1];
+					force[2] = last_force[i][2];
+					} else{
+
+						//to ten drugi falcon - zerujemy sily
+					force[0] = 0;
+					force[1] = 0;
+					force[2] = 0;
+					}
+				}
 				hdlSetToolForce(force);
 				hd[i].pos = newPosition;
 				hd[i].vel = linearVelocity;
