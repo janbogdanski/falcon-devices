@@ -44,7 +44,7 @@ using namespace std;
 // DECLARED CONSTANTS
 //---------------------------------------------------------------------------
 
-double force[3];
+double force[2][3];
 double last_force[2][3];
 // initial size (width/height) in pixels of the display window
 const int WINDOW_SIZE_W         = 600;
@@ -186,6 +186,7 @@ void updateGraphics(void);
 
 // main haptics loop
 void updateHaptics(void);
+double zaokraglanie(double x);
 
 cVector3d gravity_compensate(cVector3d);
 FILE *plik;
@@ -802,7 +803,7 @@ void updateHaptics(void)
 			cVector3d errorPosition;
             //hapticDevices[i]->getPosition(newPosition);
 			double positionServo[3];
-			double force[3];
+			//double force[3];
 			hdlToolPosition(positionServo);
 			newPosition.x = positionServo[2];
 			newPosition.y = positionServo[0];
@@ -835,16 +836,16 @@ void updateHaptics(void)
 
             // compute a reaction force
             cVector3d newForce (0,0,0);
-
+			double calc_force[3];
             // apply force field
             if (useForceField)
             {
 				if (newTime<StartTime)
 				{
 					newPosition.add(0, 0, 0);
-					force[0] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
-					force[1] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
-					force[2] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
+					calc_force[0] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
+					calc_force[1] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
+					calc_force[2] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
 				}
 				else if(newTime<EndTime)
 				{
@@ -867,9 +868,9 @@ errorPosition = newPosition - hd[1-i].pos;
 					//errorVelocity.add(0, -hd[1-i].vel.y, 0);
 					hd[i].error +=errorPosition;
 
-					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
-					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
-					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;
+					calc_force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
+					calc_force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
+					calc_force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;
 
 
 				}
@@ -878,9 +879,9 @@ errorPosition = newPosition - hd[1-i].pos;
 					double f = Freq[Freq_count]; // in Hz
 					double T = 1/f;
 					//force[0] += 5*cSinRad(2*3.14/T*(newTime-StartTime));
-					force[0] = 0;
-					force[1] = 0;
-					force[2] = 0;
+					force[i][0] = 0;
+					force[i][1] = 0;
+					force[i][2] = 0;
 
 				}
 
@@ -892,32 +893,37 @@ errorPosition = newPosition - hd[1-i].pos;
 				force[2] += Fg.x;*/
 
 
+				force[i][0] = calc_force[0];
+				force[i][1] = calc_force[1];
+				force[i][2] = calc_force[2];
 				//czy uzyc stalej sily do testow - zmiana wart sil - q,w, a,s, z,x 
 				int const_force = false;
 
 				//ktory falcon 
 				int which_falcon = 1;
 				if(const_force){
-					if(i = which_falcon){
+					force[i][0] = last_force[i][0];
+					force[i][1] = last_force[i][1];
+					force[i][2] = last_force[i][2];
+					if(i%2 == 0){
 
-					force[0] = last_force[i][0];
-					force[1] = last_force[i][1];
-					force[2] = last_force[i][2];
+					force[i][0] +=0.1;
+					force[i][1] +=0.1;
+					force[i][2] +=0.1;
 					} else{
 
-						//to ten drugi falcon - zerujemy sily
-					force[0] = 0;
-					force[1] = 0;
-					force[2] = 0;
+					//force[i][0] -=0.1;
+					//force[i][1] -=0.1;
+					//force[i][2] -=0.1;
 					}
 				}
-				hdlSetToolForce(force);
+				hdlSetToolForce(force[i]);
 				hd[i].pos = newPosition;
 				hd[i].vel = linearVelocity;
 				hd[i].time = newTime;
-				hd[i].force.x = force[2];
-				hd[i].force.y = force[0];
-				hd[i].force.z = force[1];
+				hd[i].force.x = force[i][2];
+				hd[i].force.y = force[i][0];
+				hd[i].force.z = force[i][1];
 
 			}
 
@@ -1080,3 +1086,10 @@ cVector3d gravity_compensate(cVector3d newPosition)
 		Fg.set(Gravity.z,Gravity.x,Gravity.y);
 		return Fg;
 }
+
+double zaokraglanie(double x)
+{
+ int y = x * 10000; // przesuwamy przecinek o 4 miejsca i pozbywamy sie reszty za przecinkiem - y jest calkowite
+ if (y % 10 >= 5) y += 10; // jezeli cyfra jednosci >= 5
+ return (y / 10) * 0.001; // usuwamy ostatnia cyfre i zamieniamy na liczbe zmiennoprzecinkowa
+} 
