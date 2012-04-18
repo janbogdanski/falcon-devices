@@ -134,12 +134,8 @@ bool useForceField = false;
 // has exited haptics simulation thread
 bool simulationFinished = false;
 
-bool write_to_file = true;
-
 bool EnableHaptics = true;
 
-
-ofstream output[MAX_DEVICES];
 
 struct HapticDevice
 {
@@ -457,19 +453,6 @@ int main(int argc, char* argv[])
         labels[i] = newPosLabel;
 
 
-		string strLabel = "H:\\plik_";
-		strLabel += hd[i].devicename;
-		strLabel += "\\f";
-
-		cStr(strLabel, Freq[Freq_count], 2);
-
-		strLabel += ".txt";
-		const char * c = strLabel.c_str();
-
-		if (write_to_file)
-			cout<<"Output file name is: "<<strLabel<<endl;
-
-		output[i].open (c);
         // increment counter
         i++;
     }
@@ -662,7 +645,6 @@ void close(void)
 		//hdlDestroyServoOp();
 		hdlStop();
 		hdlUninitDevice(hd[i].handle);
-		output[i].close();
         i++;
     }
 }
@@ -721,8 +703,6 @@ void updateGraphics(void)
 		cStr(strLabel2, clock->getCurrentTimeSeconds(), 5);
 		strLabel2 += "\n";
 
-		if (write_to_file)
-			output[i]<<strLabel2;
     }
 
     // render world
@@ -745,20 +725,7 @@ void updateGraphics(void)
 		{
 			for (int i = 0; i<numHapticDevices; i++)
 			{
-				output[i].close();
 				hd[i].error.zero();
-				string strLabel = "H:\\plik_";
-				strLabel += hd[i].devicename;
-				strLabel += "\\f";
-				cStr(strLabel, Freq[Freq_count], 2);
-
-				strLabel += ".txt";
-				const char * c = strLabel.c_str();
-
-				if (write_to_file)
-					cout<<"Output file name is: "<<strLabel<<endl;
-
-				output[i].open (c);
 			}
 		}
 		else
