@@ -3,3 +3,4 @@ src/*
 *.log
 *.user
 *.vcproj
+*.txt
