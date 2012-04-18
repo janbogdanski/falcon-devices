@@ -187,7 +187,6 @@ double calc_avg_force(int which_falcon, int which_axis,double last_force);
 void print_avg_force();
 
 cVector3d gravity_compensate(cVector3d);
-FILE *plik;
 //===========================================================================
 /*
     DEMO:    device.cpp
@@ -212,7 +211,6 @@ FILE *plik;
 
 int main(int argc, char* argv[])
 {
-	plik=fopen("baza_RD.txt", "w"); 
 
     //-----------------------------------------------------------------------
     // INITIALIZATION
@@ -746,7 +744,6 @@ void updateGraphics(void)
 
 void updateHaptics(void)
 {
-	//plik=fopen("baza_RD.txt", "w"); 
     // main haptic simulation loop
     while(simulationRunning)
     {
@@ -879,8 +876,7 @@ errorPosition = newPosition - hd[1-i].pos;
 				}
 
 			printf("pos %d %lf %lf %lf %lf %lf\n", i, newPosition.x, newPosition.y, newPosition.z, errorPosition.length(), errorVelocity.length());
-//fprintf(plik,"%d\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, newPosition.x, newPosition.y, newPosition.z, linearVelocity.x, linearVelocity.y, linearVelocity.z,
-				//calc_force[0],calc_force[1],calc_force[2]);
+
 				if(errorPosition.length() > 0.008 && errorVelocity.length() > 0.001){
 
 					hdlSetToolForce(force[i]);
@@ -1107,10 +1103,8 @@ int haptics = 2;
 for(int k = 0; k<3; k++){
 		for(int j = 0; j< AVG; j++){
 
-			fprintf(plik,"%d\t%lf\n",i,avg_force[i][k][j]);
 		}
 }
-		fprintf(plik,"\n");
 	}
 }
 
