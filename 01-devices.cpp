@@ -128,9 +128,6 @@ bool simulationRunning = false;
 // root resource path
 string resourceRoot;
 
-// damping mode ON/OFF
-bool useDamping = true;
-
 // force field mode ON/OFF
 bool useForceField = false;
 
@@ -627,19 +624,6 @@ void keySelect(unsigned char key, int x, int y)
 		last_force[1][2] -= 0.5;
 	if (key == 'v')
 		last_force[1][2] += 0.5;
-    // option 2:
-    /*if (key == '2')
-    {
-        useDamping = !useDamping;
-        if (useDamping)
-        {
-            printf ("- Enable viscosity\n");
-        }
-        else
-        {
-            printf ("- Disable viscosity\n");
-        }
-    }*/
 }
 
 //---------------------------------------------------------------------------
