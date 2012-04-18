@@ -179,7 +179,6 @@ void updateGraphics(void);
 
 // main haptics loop
 void updateHaptics(void);
-double zaokraglanie(double x);
 
 cVector3d gravity_compensate(cVector3d);
 //===========================================================================
@@ -1044,10 +1043,3 @@ cVector3d gravity_compensate(cVector3d newPosition)
 		Fg.set(Gravity.z,Gravity.x,Gravity.y);
 		return Fg;
 }
-
-double zaokraglanie(double x)
-{
- int y = x * 10000; // przesuwamy przecinek o 4 miejsca i pozbywamy sie reszty za przecinkiem - y jest calkowite
- if (y % 10 >= 5) y += 10; // jezeli cyfra jednosci >= 5
- return (y / 10) * 0.001; // usuwamy ostatnia cyfre i zamieniamy na liczbe zmiennoprzecinkowa
-} 
