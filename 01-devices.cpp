@@ -586,7 +586,7 @@ void updateGraphics(void)
 		double positionServo[3];
 
 		//hdlToolPosition(positionServo);
-		pos = hd[i].force;
+		pos = hd[i].pos;
 
         //hapticDevices[i]->getPosition(pos);
         //pos.mul(1000);
@@ -774,9 +774,8 @@ errorPosition = newPosition - hd[1-i].pos;
 
 				if(errorPosition.length() > 0.008 && errorVelocity.length() > 0.001){
 
+					//aplikujemy sily tylko gdy roznica polozen jest wieksza od >x< i roznica predkoscy od >y<
 					hdlSetToolForce(force[i]);
-					//Sleep(1);
-
 				}
 				hd[i].pos = newPosition;
 				hd[i].vel = linearVelocity;
