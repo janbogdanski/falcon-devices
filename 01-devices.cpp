@@ -180,7 +180,6 @@ void updateGraphics(void);
 // main haptics loop
 void updateHaptics(void);
 
-cVector3d gravity_compensate(cVector3d);
 //===========================================================================
 /*
     DEMO:    device.cpp
@@ -832,14 +831,6 @@ errorPosition = newPosition - hd[1-i].pos;
 
 				}
 
-
-
-				/*cVector3d Fg = gravity_compensate(newPosition);
-				force[0] += Fg.y;
-				force[1] += Fg.z;
-				force[2] += Fg.x;*/
-
-
 				force[i][0]= calc_force[0];
 				force[i][1]= calc_force[1];
 				force[i][2]= calc_force[2];
@@ -900,146 +891,3 @@ errorPosition = newPosition - hd[1-i].pos;
 }
 
 //---------------------------------------------------------------------------
-// User defined functions
-cVector3d gravity_compensate(cVector3d newPosition)
-{
-		//Get position of a Falcon end effector in its co-ordinate frame and transfer it to the Base frame
-		//co-ordinate frame
-		const double Pzo = 0.134;	//	Zero-Configuration z-offset
-		double px = (newPosition.y);
-		double py = (newPosition.z);
-		double pz = (newPosition.x) + Pzo;
-
-		/////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Computing the position of point P with respect to individial motor co-ordinate frames
-		//Transfering from Base frame co-ordinate frame to motor co-ordinate frame
-		////////////////////////////////////////////////////////////////////////////////////////////////////////
-		const double r   = 0.03723;	//	Radius of Back Plate
-		const double Pvo = 0.022;   //  Zero-Configuration v-offset
-
-		//Other parameters
-		const double pi = 3.141592653589793;
-		int j;
-
-		//Motor Joint Angles    (Unit: radians)
-		const double phi[3] = {105.0*pi/180.0, -15.0*pi/180.0, -135.0*pi/180.0};
-
-		//Motor co-ordinate frames
-		double Pv[3], Pw[3], Pu[3];
-
-
-		for(j=0;j<3;j++)
-		{
-			Pu[j] = (cos(phi[j]) * px)  + (sin(phi[j])* py)  - r;	
-			Pv[j] = -(sin(phi[j])* px)  + (cos(phi[j]) * py) + Pvo;
-			Pw[j] = pz;
-		}
-
-
-		//////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Computing Inverse Kinematics
-		//////////////////////////////////////////////////////////////////////////////////////////////////////////
-		double T1[3];
-		double L0[3], L1[3], L2[3];
-		double theta1[3], theta2[3], theta3[3]; // Joint Angles
-
-		//Dimensions of different parameters (Unit: meter)
-		const double s  =  0.025;    // Back plate Actuator Offset
-		const double b  =  0.103;    // Length of Parallel Link
-		const double a  =  0.060;    // Length of Curved Link
-		const double d  =  0.011;    // Length of Joint Link    
-		const double c	=  0.0157;	 //	Radius of Front Plate
-
-		for(j=0;j<3;j++)
-		{
-			//Calculating theta3
-			theta3[j] = acos( (Pv[j] - s) /b);
-
-			L0[j] = pow(Pw[j],2.0) + pow(Pu[j],2) + (2.0 * c * Pu[j]) - (4.0 * pow(d,2)) - (pow(b,2) * pow(sin(theta3[j]),2)) - (4.0 * b * d * sin(theta3[j])) - (2.0 * a * Pu[j]) + pow((a-c),2);
-			L1[j] = -4.0 * a * Pw[j];
-			L2[j] = pow(Pw[j],2.0) + pow(Pu[j],2) + (2.0 * c * Pu[j]) - (4.0 * pow(d,2)) - (pow(b,2) * pow(sin(theta3[j]),2)) - (4.0 * b * d * sin(theta3[j])) + (2.0 * a * Pu[j]) + pow((a+c),2);
-			T1[j] = (-L1[j] - sqrt(pow(L1[j],2) - (4.0*L2[j]*L0[j]))) / (2.0*L2[j]);
-
-			//Calculating theta1
-			theta1[j] = 2.0 * atan(T1[j]);
-       
-			//Calculating theta2
-			theta2[j] = atan((Pw[j] - (a * sin(theta1[j])))/(Pu[j] - (a * cos(theta1[j])) + c) );
-		}
-
-		////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Computing the Jacobian Matrix
-		////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		cMatrix3d JF;
-		double JF1[3], JF2[3], JF3[3];
-		for(j=0;j<3;j++)
-		{
-			JF1[j] =	cos(theta2[j]) * sin(theta3[j]) * cos(phi[j])      - cos(theta3[j]) * sin(phi[j]);
-			JF2[j] =	cos(theta3[j]) * cos(phi[j])    + cos(theta2[j]) * sin(theta3[j]) * sin(phi[j]);
-			JF3[j] =	sin(theta2[j]) * sin(theta3[j]);
-		}
-		JF.set(JF1[0],JF2[0],JF3[0],JF1[1],JF2[1],JF3[1],JF1[2],JF2[2],JF3[2]);
-
-		/////////////////////////////////////////////////////
-		cMatrix3d JI;
-		double JI1[3];
-		for(j=0;j<3;j++)
-		{
-			JI1[j] =	a*sin(theta2[j] - theta1[j])*sin(theta3[j]);
-		}
-		JI.set(JI1[0],0.0,0.0,0.0,JI1[1],0.0,0.0,0.0,JI1[2]);
-
-		/////////////////////////////////////////////////////
-		cMatrix3d J;
-		cMatrix3d Jinv;
-		cMatrix3d JIinv;
-		cMatrix3d JT;
-		JI.invertr(JIinv);
-		JIinv.mulr(JF,J);
-		J.transr(JT);
-		cMatrix3d JTinv;
-		JT.invertr(JTinv);
-
-		///////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Computing Gravitational Torque
-		///////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Masses of different parts of Falcon (Units in kilograms)
-		const double me = 0.052;	//  Mass of modified falcon grip
-		const double mc = 0.03278;  //  Mass of moving plate
-		const double mb = 0.00841;  //  Mass of parallel link
-		const double md = 0.01037;  //  Mass of joint link
-		const double ma = 0.08935;  //  Mass of curved link
-	    cVector3d Ga_Torque;        //Gravitational Torque
-		cVector3d Gb_Torque;        //Gravitational Torque
-		cVector3d Gc_Torque;        //Gravitational Torque
-		cVector3d Tg;               //Total gravitational torque
-
-		//Different lengths of Falcon Parts(Units in meter)
-		const double q   = 0.022;   //  Length of center of mass of curved link from motor joint
-
-		//Other variables defined
-		const double g  = 9.815; //Magnitude of Gravity - m/s^2
-
-		double m_a = g * ma * q;
-		Ga_Torque.set( m_a * sin((100.0*3.14/180.0) - theta1[0]) * sin(phi[0]) , m_a * sin((100.0*3.14/180.0) - theta1[1]) * sin(phi[1]) , m_a * sin((100.0*3.14/180.0) - theta1[2]) * sin(phi[2]) );
-
-		double m_b = a * g * (mb + md);
-		Gb_Torque.set( m_b * sin(theta1[0]) * sin(phi[0]) , m_b * sin(theta1[1]) * sin(phi[1]) , m_b * sin(theta1[2]) * sin(phi[2]) );
-		cVector3d Gc_Force;
-		Gc_Force.x = 0.0;
-		Gc_Force.y = (3.0* (mb+md) + mc + me) * g;
-		Gc_Force.z = 0.0;
-		JTinv.mulr(Gc_Force,Gc_Torque);
-
-		// Computing total gravitational torque
-		Tg = Ga_Torque - Gb_Torque + Gc_Torque;
-
-		// Computing the required gravity force from gravitational torque
-		cVector3d Gravity;
-		JT.mulr(Tg,Gravity);
-
-		// Converting from back plate to Falcons Co-ordinate system
-		cVector3d Fg;
-		Fg.set(Gravity.z,Gravity.x,Gravity.y);
-		return Fg;
-}
