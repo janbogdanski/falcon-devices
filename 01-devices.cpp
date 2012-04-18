@@ -382,18 +382,6 @@ int main(int argc, char* argv[])
 			exit(1);
 		}
 
-        // open connection to haptic device
-        //newHapticDevice->open();
-
-		// initialize haptic device
-		//newHapticDevice->initialize();
-
-        // store the handle in the haptic device table
-        //hapticDevices[i] = newHapticDevice;
-
-        // retrieve information about the current haptic device
-        //cHapticDeviceInfo info = newHapticDevice->getSpecifications();
-
         // create a cursor by setting its radius
         cShapeSphere* newCursor = new cShapeSphere(0.000000001);
 
@@ -414,6 +402,7 @@ int main(int argc, char* argv[])
         string strID;
         cStr(strID, i);
         string strDevice = "#" + strID + " - ";
+		//string strDevice = "#" + strID + " - " +info.m_modelName;
 
         // attach a small label next to the cursor to indicate device information
         cLabel* newLabel = new cLabel();
@@ -421,17 +410,6 @@ int main(int argc, char* argv[])
         newLabel->m_string = strDevice;
         newLabel->setPos(0.00, 0.02, 0.00);
         newLabel->m_fontColor.set(1.0, 1.0, 1.0);
-
-        // if the device provided orientation sensing (stylus), a reference
-        // frame is displayed
-        /*if (info.m_sensedRotation == true)
-        {
-            // display a reference frame
-            newCursor->setShowFrame(true);
-
-            // set the size of the reference frame
-            newCursor->setFrameSize(0.05, 0.05);
-        }*/
 
         // crate a small label to indicate the position of the device
         cLabel* newPosLabel = new cLabel();
@@ -445,18 +423,9 @@ int main(int argc, char* argv[])
         i++;
     }
 
-	// starts servo and all haptic devices.
-	std::cout << "HDAL: hdlStart" << std::endl;
+	//Start servo and all haptic devices, uzywajac Haptic Device Abstraction Layer
+	printf("HDAL: hdlStart()");
 	hdlStart();
-
-	// sets callback for the nonblocking servo loop
-	//std::cout << "HDAL: hdlCreateServoOp" << std::endl;
-	//hdlCreateServoOp(NonBlockingServoOpCallback, NULL, bNonBlocking);
-
-	// make a specific haptic device current
-
-    // here we define the material properties of the cursor when the
-    // user button of the device end-effector is engaged (ON) or released (OFF)
 
     // a light orange material color
     matCursorButtonOFF.m_ambient.set(0.5, 0.2, 0.0);
@@ -629,8 +598,7 @@ void close(void)
     int i=0;
     while (i < numHapticDevices)
     {
-        //hd[i]->close();
-		//hdlDestroyServoOp();
+		//stopujemy falcony za pomoca funkcji hdal
 		hdlStop();
 		hdlUninitDevice(hd[i].handle);
         i++;
@@ -737,7 +705,7 @@ void updateHaptics(void)
     // main haptic simulation loop
     while(simulationRunning)
     {
-			Sleep(8);
+			Sleep(9);
         // for each device
         int i=0;
 		double newTime = clock->getCurrentTimeSeconds();
