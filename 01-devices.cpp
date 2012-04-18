@@ -799,7 +799,7 @@ void updateHaptics(void)
     // main haptic simulation loop
     while(simulationRunning)
     {
-			Sleep(7);
+			Sleep(8);
         // for each device
         int i=0;
 		double newTime = clock->getCurrentTimeSeconds();
