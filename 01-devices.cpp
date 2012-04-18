@@ -45,8 +45,6 @@ using namespace std;
 //---------------------------------------------------------------------------
 
 double force[2][3];
-const int AVG = 5;
-double avg_force[2][3][AVG];
 double last_force[2][3];
 // initial size (width/height) in pixels of the display window
 const int WINDOW_SIZE_W         = 600;
@@ -182,9 +180,6 @@ void updateGraphics(void);
 // main haptics loop
 void updateHaptics(void);
 double zaokraglanie(double x);
-int empty_avg_force();
-double calc_avg_force(int which_falcon, int which_axis,double last_force);
-void print_avg_force();
 
 cVector3d gravity_compensate(cVector3d);
 //===========================================================================
@@ -319,9 +314,6 @@ int main(int argc, char* argv[])
 
     // limit the number of devices to MAX_DEVICES
     numHapticDevices = cMin(numHapticDevices, MAX_DEVICES);
-
-	empty_avg_force();
-	//print_avg_force();
 
 	hd[0].devicename = "FALCON_1";
 	hd[1].devicename = "FALCON_2";
@@ -849,10 +841,11 @@ errorPosition = newPosition - hd[1-i].pos;
 				force[2] += Fg.x;*/
 
 
-				force[i][0]= calc_force[0];// calc_avg_force(i,0, calc_force[0]);// (calc_force[0] + force[i][0])/2;
-				force[i][1]= calc_force[1];// calc_avg_force(i,1, calc_force[1]);// (calc_force[1] + force[i][1])/2;
-				force[i][2]= calc_force[2];// calc_avg_force(i,2, calc_force[2]);// (calc_force[2] + force[i][2])/2;
-				print_avg_force();
+				force[i][0]= calc_force[0];
+				force[i][1]= calc_force[1];
+				force[i][2]= calc_force[2];
+
+
 				//czy uzyc stalej sily do testow - zmiana wart sil - q,w, a,s, z,x 
 				int const_force = false;
 
@@ -1058,53 +1051,3 @@ double zaokraglanie(double x)
  if (y % 10 >= 5) y += 10; // jezeli cyfra jednosci >= 5
  return (y / 10) * 0.001; // usuwamy ostatnia cyfre i zamieniamy na liczbe zmiennoprzecinkowa
 } 
-
-int empty_avg_force(){
-	int haptics = 2;
-
-	//i - liczba haptikow
-	//k - kierunki x,y,z - oznaczone 0,1,2
-	//j - kontener na ostatnie wyniki np 100
-	for(int i = 0; i< haptics; i++){
-		for(int k = 0; k<3; k++){
-
-		for(int j = 0; j< AVG; j++){
-
-			avg_force[i][k][j] = 0;
-		}
-		}
-	}
-	return 1;
-}
-
-double calc_avg_force(int which_haptic, int which_axis,double last_force){
-
-	double tmp_force = 0;
-	//przesun wszystkie wartosci o jedno miejsce 'w dol'
-	for(int i = 0; i < AVG - 1; i++){
-
-		avg_force[which_haptic][which_axis][i] = avg_force[which_haptic][which_axis][i+1];
-	}
-
-	//dodaj na koniec last_force
-	avg_force[which_haptic][which_axis][AVG - 1] = last_force;
-
-	//oblicz srednia
-	for(int i = 0; i < AVG; i++){
-		tmp_force += avg_force[which_haptic][which_axis][i];
-	}
-	return tmp_force/(AVG+1);
-	
-}
-
-void print_avg_force(){
-int haptics = 2;
-	for(int i = 0; i< haptics; i++){
-for(int k = 0; k<3; k++){
-		for(int j = 0; j< AVG; j++){
-
-		}
-}
-	}
-}
-
