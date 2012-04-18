@@ -92,10 +92,6 @@ double Kd = 1.0; // 10
 double Ki = 3;
 
 
-const int MAX_FREQ_NUM = 1;
-double Freq[MAX_FREQ_NUM];
-int Freq_count = 0;
-
 // a haptic device handler
 cHapticDeviceHandler* handler;
 
@@ -333,41 +329,11 @@ int main(int argc, char* argv[])
     // for each available haptic device, create a 3D cursor
     // and a small line to show velocity
     int i = 0;
-	std::cout << "Number of devices: " <<numHapticDevices <<std::endl;
+	printf("Liczba podlaczonych hapticow %d\n", numHapticDevices);
 
-	double Freqmin;
-	double Freqmax;
-
-	cout<<"Enter the input frequency range"<<endl;
-	cout<<"Min: ";
-	cin>>Freqmin;
-	cout<<"Max: ";
-	cin>>Freqmax;
-
-	Freq[0] = Freqmin;
-	for(int i = 1; i < MAX_FREQ_NUM; i++)
-	{
-		Freq[i] = Freq[i-1] + (Freqmax - Freqmin)/(MAX_FREQ_NUM-1);
-
-	}
     while (i < numHapticDevices)
     {
-        // get a handle to the next haptic device
-        //cGenericHapticDevice* newHapticDevice;
-        //handler->getDevice(newHapticDevice, i);
 
-
-		/*switch (i) {
-			case 0:
-				std::cout << "HDAL: hdlInitDevice 1" << std::endl;
-				deviceHandle[i] = hdlInitNamedDevice("FALCON_1");
-				break;
-			case 1:
-				std::cout << "HDAL: hdlInitDevice 2" << std::endl;
-				deviceHandle[i] = hdlInitNamedDevice("FALCON_2");
-				break;
-		}*/
-		//hd[i].handle = hdlInitNamedDevice(hd[i].devicename);
 		hd[i].handle = hdlInitIndexedDevice(i);
 
 		// Init device data
@@ -671,25 +637,6 @@ void updateGraphics(void)
     GLenum err;
     err = glGetError();
     if (err != GL_NO_ERROR) printf("Error:  %s\n", gluErrorString(err));
-	if (newTime>=EndTime)
-	{
-
-		clock->reset();
-
-		Freq_count++;
-		if (Freq_count<MAX_FREQ_NUM)
-		{
-			for (int i = 0; i<numHapticDevices; i++)
-			{
-				hd[i].error.zero();
-			}
-		}
-		else
-		{
-			simulationRunning = false;
-		}
-
-	}
 
     // inform the GLUT window to call updateGraphics again (next frame)
     if (simulationRunning)
@@ -790,9 +737,6 @@ errorPosition = newPosition - hd[1-i].pos;
 				}
 				if (i==1 && !EnableHaptics)
 				{
-					double f = Freq[Freq_count]; // in Hz
-					double T = 1/f;
-					//force[0] += 5*cSinRad(2*3.14/T*(newTime-StartTime));
 					force[i][0] = 0;
 					force[i][1] = 0;
 					force[i][2] = 0;
