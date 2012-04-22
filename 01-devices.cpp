@@ -143,7 +143,7 @@ struct HapticDevice
     cVector3d force;
 };
 
-HapticDevice hd[2];
+HapticDevice haptic[2];
 
 //---------------------------------------------------------------------------
 // DECLARED MACROS
@@ -325,19 +325,21 @@ int main(int argc, char* argv[])
     // and a small line to show velocity
     int i = 0;
 	printf("Liczba podlaczonych hapticow %d\n", numHapticDevices);
-
+if(numHapticDevices != 2){
+	exit(1);
+}
     while (i < numHapticDevices)
     {
 
-		hd[i].handle = hdlInitIndexedDevice(i);
+		haptic[i].handle = hdlInitIndexedDevice(i);
 
 		// Init device data
-		hd[i].pos.zero();
-		hd[i].vel.zero();
-		hd[i].error.zero();
-		hd[i].time = 0;
+		haptic[i].pos.zero();
+		haptic[i].vel.zero();
+		haptic[i].error.zero();
+		haptic[i].time = 0;
 
-		if (hd[i].handle == HDL_INVALID_HANDLE)
+		if (haptic[i].handle == HDL_INVALID_HANDLE)
 		{
 			printf("Blad przy podlaczeniu z falconem %d: HDL_INVALID_HANDLE",i);
 			exit(1);
@@ -542,7 +544,7 @@ void close(void)
     {
 		//stopujemy falcony za pomoca funkcji hdal
 		hdlStop();
-		hdlUninitDevice(hd[i].handle);
+		hdlUninitDevice(haptic[i].handle);
         i++;
     }
 }
@@ -560,7 +562,7 @@ void updateGraphics(void)
 		double positionServo[3];
 
 		//hdlToolPosition(positionServo);
-		pos = hd[i].pos;
+		pos = haptic[i].pos;
 
         //hapticDevices[i]->getPosition(pos);
         //pos.mul(1000);
@@ -632,7 +634,7 @@ void updateHaptics(void)
 		double newTime = clock->getCurrentTimeSeconds();
         while (i < numHapticDevices)
         {
-			hdlMakeCurrent(hd[i].handle);
+			hdlMakeCurrent(haptic[i].handle);
 
             // read position of haptic device
             cVector3d newPosition;
@@ -654,8 +656,8 @@ void updateHaptics(void)
             // read linear velocity from device
             cVector3d linearVelocity;
 			cVector3d errorVelocity;
-			newPosition.subr(hd[i].pos, linearVelocity);
-			double interval = newTime - hd[i].time;
+			newPosition.subr(haptic[i].pos, linearVelocity);
+			double interval = newTime - haptic[i].time;
 			//cout<<interval<<endl;
 			if (interval>0)
 				linearVelocity.div(interval);
@@ -691,21 +693,21 @@ void updateHaptics(void)
 					//cout<<errorVelocity.y<<endl;
 					errorPosition.add(0, -0.04*cSinRad(2*3.14/T*(newTime-1)), -0.04*cCosRad(2*3.14/T*(newTime-1)));	
 					errorVelocity.add(0, -0.04*2*3.14/T*cCosRad(2*3.14/T*(newTime-1)),0.04*2*3.14/T*cSinRad(2*3.14/T*(newTime-1)));
-					hd[i].error +=errorPosition;
+					haptic[i].error +=errorPosition;
 					linearVelocity.add(0, 0, 0);
-					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
-					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
-					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;*/
+					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*haptic[i].error.y;
+					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*haptic[i].error.z;
+					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*haptic[i].error.x;*/
 
-errorPosition = newPosition - hd[1-i].pos;
-					//errorPosition.add(0, -hd[1-i].pos.y, 0);
-					errorVelocity = linearVelocity - hd[1-i].vel;
-					//errorVelocity.add(0, -hd[1-i].vel.y, 0);
-					hd[i].error +=errorPosition;
+errorPosition = newPosition - haptic[1-i].pos;
+					//errorPosition.add(0, -haptic[1-i].pos.y, 0);
+					errorVelocity = linearVelocity - haptic[1-i].vel;
+					//errorVelocity.add(0, -haptic[1-i].vel.y, 0);
+					haptic[i].error +=errorPosition;
 
-					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
-					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
-					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;
+					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*haptic[i].error.y;
+					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*haptic[i].error.z;
+					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*haptic[i].error.x;
 
 
 				}
@@ -725,12 +727,12 @@ errorPosition = newPosition - hd[1-i].pos;
 				}
 
 
-				hd[i].pos = newPosition;
-				hd[i].vel = linearVelocity;
-				hd[i].time = newTime;
-				hd[i].force.x = force[2];
-				hd[i].force.y = force[0];
-				hd[i].force.z = force[1];
+				haptic[i].pos = newPosition;
+				haptic[i].vel = linearVelocity;
+				haptic[i].time = newTime;
+				haptic[i].force.x = force[2];
+				haptic[i].force.y = force[0];
+				haptic[i].force.z = force[1];
 
 			}
 
