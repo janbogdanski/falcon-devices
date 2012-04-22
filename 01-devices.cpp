@@ -44,7 +44,7 @@ using namespace std;
 // DECLARED CONSTANTS
 //---------------------------------------------------------------------------
 
-double force[2][3];
+double force[3];
 // initial size (width/height) in pixels of the display window
 const int WINDOW_SIZE_W         = 600;
 const int WINDOW_SIZE_H         = 600;
@@ -669,16 +669,16 @@ void updateHaptics(void)
 
             // compute a reaction force
             cVector3d newForce (0,0,0);
-			double calc_force[3];
+
             // apply force field
             if (useForceField)
             {
 				if (newTime<StartTime)
 				{
 					newPosition.add(0, 0, 0);
-					calc_force[0] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
-					calc_force[1] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
-					calc_force[2] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
+					force[0] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
+					force[1] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
+					force[2] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
 				}
 				else if(newTime<EndTime)
 				{
@@ -701,38 +701,34 @@ errorPosition = newPosition - hd[1-i].pos;
 					//errorVelocity.add(0, -hd[1-i].vel.y, 0);
 					hd[i].error +=errorPosition;
 
-					calc_force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
-					calc_force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
-					calc_force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;
+					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
+					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
+					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;
 
 
 				}
 				if (i==1 && !EnableHaptics)
 				{
-					force[i][0] = 0;
-					force[i][1] = 0;
-					force[i][2] = 0;
+					force[0] = 0;
+					force[1] = 0;
+					force[2] = 0;
 
 				}
-
-				force[i][0]= calc_force[0];
-				force[i][1]= calc_force[1];
-				force[i][2]= calc_force[2];
 
 
 				if(errorPosition.length() > 0.008 && errorVelocity.length() > 0.001){
 
 					//aplikujemy sily tylko gdy roznica polozen jest wieksza od >x< i roznica predkoscy od >y<
-					hdlSetToolForce(force[i]);
+					hdlSetToolForce(force);
 				}
 
 
 				hd[i].pos = newPosition;
 				hd[i].vel = linearVelocity;
 				hd[i].time = newTime;
-				hd[i].force.x = force[i][2];
-				hd[i].force.y = force[i][0];
-				hd[i].force.z = force[i][1];
+				hd[i].force.x = force[2];
+				hd[i].force.y = force[0];
+				hd[i].force.z = force[1];
 
 			}
 
