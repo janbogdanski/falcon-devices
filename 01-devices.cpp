@@ -124,18 +124,23 @@ bool simulationFinished = false;
 bool EnableHaptics = true;
 
 
+/*
+Opis struktury
+handle - 'wskaznik' na dane urzadzenie, otrzymany hdlInitIndexedDevice() (mozliwe jest po nazwie, ale nie dzialalo prawidlowo
+pos - odczytana pozycja
+vel - obliczona predkosc - na podstawie zmiany polozenia i czasu
+time - czas jaki uplynal od uruchomienia symulacji
+error - wektor x,y,z - roznica polozen obu urzadzen - 'aktualny' - 'ten drugi' na kazdej osi :)
+force - wektor sil, w sumie nie uzywany
+*/
 struct HapticDevice
 {
     HDLDeviceHandle handle;
-    double workspaceDims[6];
     cVector3d pos;
 	cVector3d vel;
 	double time;
-	cVector3d error; //Distance from desired trajectory
-    double transformMat[16];
+	cVector3d error;
     cVector3d force;
-    bool   button;
-	char* devicename;
 };
 
 HapticDevice hd[2];
@@ -301,9 +306,6 @@ int main(int argc, char* argv[])
 
     // limit the number of devices to MAX_DEVICES
     numHapticDevices = cMin(numHapticDevices, MAX_DEVICES);
-
-	hd[0].devicename = "FALCON_1";
-	hd[1].devicename = "FALCON_2";
 
     // create a node on which we will attach small labels that display the
     // position of each haptic device
