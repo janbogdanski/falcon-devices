@@ -25,15 +25,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "timers/CPrecisionClock.h"
-#include <iostream>
-#include <fstream>
-using namespace std;
+
 // HDAL
 #include <hdl/hdl.h>
 #include <hdlu/hdlu.h>
-#include <string>
-
-#include <cstdlib>
 
 
 //---------------------------------------------------------------------------
