@@ -45,7 +45,6 @@ using namespace std;
 //---------------------------------------------------------------------------
 
 double force[2][3];
-double last_force[2][3];
 // initial size (width/height) in pixels of the display window
 const int WINDOW_SIZE_W         = 600;
 const int WINDOW_SIZE_H         = 600;
@@ -62,12 +61,6 @@ const double StartTime			= 1;
 
 //---------------------------------------------------------------------------
 // DECLARED VARIABLES
-//---------------------------------------------------------------------------
-// Handle to device
-HDLDeviceHandle deviceHandle[MAX_DEVICES];
-
-// Handle to Contact Callback
-HDLServoOpExitCode servoOp;
 
 cPrecisionClock* clock;
 
@@ -176,6 +169,7 @@ void updateGraphics(void);
 // main haptics loop
 void updateHaptics(void);
 
+
 //===========================================================================
 /*
     DEMO:    device.cpp
@@ -200,7 +194,6 @@ void updateHaptics(void);
 
 int main(int argc, char* argv[])
 {
-
     //-----------------------------------------------------------------------
     // INITIALIZATION
     //-----------------------------------------------------------------------
@@ -344,7 +337,7 @@ int main(int argc, char* argv[])
 
 		if (hd[i].handle == HDL_INVALID_HANDLE)
 		{
-			std::cout << "Could not open device: HDL_INVALID_HANDLE" << std::endl;
+			printf("Blad przy podlaczeniu z falconem %d: HDL_INVALID_HANDLE",i);
 			exit(1);
 		}
 
@@ -384,7 +377,6 @@ int main(int argc, char* argv[])
         newPosLabel->m_fontColor.set(0.6, 0.6, 0.6);
         labels[i] = newPosLabel;
 
-
         // increment counter
         i++;
     }
@@ -402,9 +394,6 @@ int main(int argc, char* argv[])
     matCursorButtonON.m_ambient.set(0.1, 0.1, 0.4);
     matCursorButtonON.m_diffuse.set(0.3, 0.3, 0.8);
     matCursorButtonON.m_specular.set(1.0, 1.0, 1.0);
-
-
-
 
 
     //-----------------------------------------------------------------------
@@ -515,21 +504,6 @@ void keySelect(unsigned char key, int x, int y)
 		Kd += 1;
 	if (key == 'e')
 		EnableHaptics = !EnableHaptics;
-
-	if (key == 'q')
-		last_force[1][0] -= 0.5;
-	if (key == 'w')
-		last_force[1][0] += 0.5;
-
-	if (key == 'a')
-		last_force[1][1] -= 0.5;
-	if (key == 's')
-		last_force[1][1] += 0.5;
-
-	if (key == 'c')
-		last_force[1][2] -= 0.5;
-	if (key == 'v')
-		last_force[1][2] += 0.5;
 }
 
 //---------------------------------------------------------------------------
@@ -575,13 +549,11 @@ void close(void)
 
 void updateGraphics(void)
 {
-
     // update content of position label
 	double newTime = clock->getCurrentTimeSeconds();
     for (int i=0; i<numHapticDevices; i++)
     {
         // read position of device an convert into millimeters
-		//hdlMakeCurrent(deviceHandle[i]);
 		cVector3d pos;
 		double positionServo[3];
 
@@ -748,35 +720,13 @@ errorPosition = newPosition - hd[1-i].pos;
 				force[i][2]= calc_force[2];
 
 
-				//czy uzyc stalej sily do testow - zmiana wart sil - q,w, a,s, z,x 
-				int const_force = false;
-
-				//ktory falcon 
-				int which_falcon = 1;
-				if(const_force){
-					force[i][0] = last_force[i][0];
-					force[i][1] = last_force[i][1];
-					force[i][2] = last_force[i][2];
-					if(i%2 == 0){
-
-					force[i][0] +=0.1;
-					force[i][1] +=0.1;
-					force[i][2] +=0.1;
-					} else{
-
-					//force[i][0] -=0.1;
-					//force[i][1] -=0.1;
-					//force[i][2] -=0.1;
-					}
-				}
-
-			printf("pos %d %lf %lf %lf %lf %lf\n", i, newPosition.x, newPosition.y, newPosition.z, errorPosition.length(), errorVelocity.length());
-
 				if(errorPosition.length() > 0.008 && errorVelocity.length() > 0.001){
 
 					//aplikujemy sily tylko gdy roznica polozen jest wieksza od >x< i roznica predkoscy od >y<
 					hdlSetToolForce(force[i]);
 				}
+
+
 				hd[i].pos = newPosition;
 				hd[i].vel = linearVelocity;
 				hd[i].time = newTime;
