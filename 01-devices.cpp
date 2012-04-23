@@ -672,23 +672,22 @@ void updateHaptics(void)
             // apply force field
             if (useForceField)
             {
-				if (newTime<StartTime)
+				if(newTime<EndTime)
 				{
-					newPosition.add(0, 0, 0);
-					force[0] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
-					force[1] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
-					force[2] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
-				}
-				else if(newTime<EndTime)
-				{
-					errorPosition = newPosition - haptic[1-i].pos;
-					errorVelocity = linearVelocity - haptic[1-i].vel;
+					//algorytm PID w C zaczerpniety z
+					//http://www.embeddedheaven.com/pid-control-algorithm-c-language.htm
 
+					//obliczamy roznice polozen i predkosci dla proporcjonalnego i rozniczkujacego
+					errorPosition = haptic[1-i].pos - newPosition;
+					errorVelocity = haptic[1-i].vel - linearVelocity;
+
+					//obliczamy wartosc dla czlonu calkujacego
 					haptic[i].error +=errorPosition;
 
-					force[0] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*haptic[i].error.x;
-					force[1] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*haptic[i].error.y;
-					force[2] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*haptic[i].error.z;
+					//obliczamy sile jaka nalezy wygenerowac
+					force[0] = Kp*errorPosition.x + Kd*errorVelocity.x + Ki*haptic[i].error.x;
+					force[1] = Kp*errorPosition.y + Kd*errorVelocity.y + Ki*haptic[i].error.y;
+					force[2] = Kp*errorPosition.z + Kd*errorVelocity.z + Ki*haptic[i].error.z;
 
 
 				}
@@ -705,11 +704,12 @@ void updateHaptics(void)
 
 					//aplikujemy sily tylko gdy roznica polozen jest wieksza od >x< i roznica predkoscy od >y<
 					hdlSetToolForce(force);
+
+					//wyswietlamy roznice polozen - printf tutaj i w else doskonale wplywa na 'stabilnosc' falconow :)
 					printf("%lf\t%lf\t%lf\t, %lf\t%lf\t%lf\t\n", errorPosition.x,errorPosition.y,errorPosition.z, errorVelocity.x,errorVelocity.y,errorVelocity.z);
 
 				} else{
 
-					
 					printf("roznica polozen i predkosci mala!\n");
 				}
 
