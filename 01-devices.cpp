@@ -38,6 +38,7 @@
 // DECLARED CONSTANTS
 //---------------------------------------------------------------------------
 
+//w miejscach gdzie mamy wartosci w tablicach indeksowanych 0,1,2 odpowiadaja osiom x,y,z
 double force[3];
 // initial size (width/height) in pixels of the display window
 const int WINDOW_SIZE_W         = 600;
@@ -637,9 +638,9 @@ void updateHaptics(void)
 			double positionServo[3];
 			//double force[3];
 			hdlToolPosition(positionServo);
-			newPosition.x = positionServo[2];
-			newPosition.y = positionServo[0];
-			newPosition.z = positionServo[1];
+			newPosition.x = positionServo[0];
+			newPosition.y = positionServo[1];
+			newPosition.z = positionServo[2];
 
 			
 
@@ -674,9 +675,9 @@ void updateHaptics(void)
 				if (newTime<StartTime)
 				{
 					newPosition.add(0, 0, 0);
-					force[0] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
-					force[1] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
-					force[2] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
+					force[0] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
+					force[1] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
+					force[2] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
 				}
 				else if(newTime<EndTime)
 				{
@@ -685,9 +686,9 @@ void updateHaptics(void)
 
 					haptic[i].error +=errorPosition;
 
-					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*haptic[i].error.y;
-					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*haptic[i].error.z;
-					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*haptic[i].error.x;
+					force[0] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*haptic[i].error.x;
+					force[1] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*haptic[i].error.y;
+					force[2] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*haptic[i].error.z;
 
 
 				}
@@ -716,9 +717,9 @@ void updateHaptics(void)
 				haptic[i].pos = newPosition;
 				haptic[i].vel = linearVelocity;
 				haptic[i].time = newTime;
-				haptic[i].force.x = force[2];
-				haptic[i].force.y = force[0];
-				haptic[i].force.z = force[1];
+				haptic[i].force.x = force[0];
+				haptic[i].force.y = force[1];
+				haptic[i].force.z = force[2];
 
 			}
 
