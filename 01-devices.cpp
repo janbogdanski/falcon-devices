@@ -34,7 +34,6 @@
 //---------------------------------------------------------------------------
 #include "chai3d.h"
 //---------------------------------------------------------------------------
-#include <windows.h>
 //---------------------------------------------------------------------------
 // DECLARED CONSTANTS
 //---------------------------------------------------------------------------
@@ -623,7 +622,7 @@ void updateHaptics(void)
     // main haptic simulation loop
     while(simulationRunning)
     {
-			Sleep(9);
+			cSleepMs(9);
         // for each device
         int i=0;
 		double newTime = clock->getCurrentTimeSeconds();
@@ -681,23 +680,9 @@ void updateHaptics(void)
 				}
 				else if(newTime<EndTime)
 				{
-
-
-					/*errorPosition = newPosition;
-					errorVelocity = linearVelocity;
-					//cout<<errorVelocity.y<<endl;
-					errorPosition.add(0, -0.04*cSinRad(2*3.14/T*(newTime-1)), -0.04*cCosRad(2*3.14/T*(newTime-1)));	
-					errorVelocity.add(0, -0.04*2*3.14/T*cCosRad(2*3.14/T*(newTime-1)),0.04*2*3.14/T*cSinRad(2*3.14/T*(newTime-1)));
-					haptic[i].error +=errorPosition;
-					linearVelocity.add(0, 0, 0);
-					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*haptic[i].error.y;
-					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*haptic[i].error.z;
-					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*haptic[i].error.x;*/
-
-errorPosition = newPosition - haptic[1-i].pos;
-					//errorPosition.add(0, -haptic[1-i].pos.y, 0);
+					errorPosition = newPosition - haptic[1-i].pos;
 					errorVelocity = linearVelocity - haptic[1-i].vel;
-					//errorVelocity.add(0, -haptic[1-i].vel.y, 0);
+
 					haptic[i].error +=errorPosition;
 
 					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*haptic[i].error.y;
@@ -715,10 +700,16 @@ errorPosition = newPosition - haptic[1-i].pos;
 				}
 
 
-				if(errorPosition.length() > 0.008 && errorVelocity.length() > 0.001){
+				if(errorPosition.length() > 0.002 && errorVelocity.length() > 0.001){
 
 					//aplikujemy sily tylko gdy roznica polozen jest wieksza od >x< i roznica predkoscy od >y<
 					hdlSetToolForce(force);
+					printf("%lf\t%lf\t%lf\t, %lf\t%lf\t%lf\t\n", errorPosition.x,errorPosition.y,errorPosition.z, errorVelocity.x,errorVelocity.y,errorVelocity.z);
+
+				} else{
+
+					
+					printf("roznica polozen i predkosci mala!\n");
 				}
 
 
