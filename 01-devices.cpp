@@ -34,6 +34,7 @@
 //---------------------------------------------------------------------------
 #include "chai3d.h"
 //---------------------------------------------------------------------------
+
 //---------------------------------------------------------------------------
 // DECLARED CONSTANTS
 //---------------------------------------------------------------------------
@@ -50,13 +51,16 @@ const int OPTION_WINDOWDISPLAY  = 2;
 
 // maximum number of haptic devices supported in this demo
 const int MAX_DEVICES           = 8;
-const double EndTime			= 3600;
-const double StartTime			= 1;
+
+//ustawiamy maksymalny czas, po ktorym nie generujemy sil na falcony - dla bezpieczenstwa!
+const double end_time			= 300;
 
 
 //---------------------------------------------------------------------------
 // DECLARED VARIABLES
+//---------------------------------------------------------------------------
 
+//potrzebujemy zegar, uplyw czasu i zmiana polozen pozwala nam okreslic predkosc - uzywane do obliczania wspolczynnikow PID
 cPrecisionClock* clock;
 
 // a world that contains all objects of the virtual environment
@@ -75,10 +79,10 @@ cBitmap* logo;
 int displayW  = 0;
 int displayH  = 0;
 
-double Kp = 140.0; // [N/m] 600
-double Kd = 1.0; // 10
+//startowe ustawienia dla regulatora PID (w odpowiednich jednostkach:)
+double Kp = 140.0;
+double Kd = 1.0;
 double Ki = 3;
-
 
 // a haptic device handler
 cHapticDeviceHandler* handler;
@@ -116,23 +120,24 @@ bool useForceField = false;
 // has exited haptics simulation thread
 bool simulationFinished = false;
 
-bool EnableHaptics = true;
+//zmienna (modyfikowana przez 'e') - nie generujemy sil na jednym falconie, brak spzezenia od sily - ale drugi nasladuje jego ruch
+bool enable_haptic = true;
 
 
 /*
 Opis struktury
 handle - 'wskaznik' na dane urzadzenie, otrzymany hdlInitIndexedDevice() (mozliwe jest po nazwie, ale nie dzialalo prawidlowo
-pos - odczytana pozycja
-vel - obliczona predkosc - na podstawie zmiany polozenia i czasu
-time - czas jaki uplynal od uruchomienia symulacji
+position - odczytana pozycja
+velocity - obliczona predkosc - na podstawie zmiany polozenia i czasu
+time - czas jaki uplynal od uruchomienia symulacji do ostatniego sprawdzenia stanu danego falcona, majac ten czas mozemy na podstawie aktualnego czasu okreslic roznice czasu, a majac tez roznice polozen - obliczymy predkosc :)
 error - wektor x,y,z - roznica polozen obu urzadzen - 'aktualny' - 'ten drugi' na kazdej osi :)
 force - wektor sil, w sumie nie uzywany
 */
 struct HapticDevice
 {
     HDLDeviceHandle handle;
-    cVector3d pos;
-	cVector3d vel;
+    cVector3d position;
+	cVector3d velocity;
 	double time;
 	cVector3d error;
     cVector3d force;
@@ -207,7 +212,6 @@ int main(int argc, char* argv[])
     printf ("\n\n");
     printf ("Keyboard Options:\n\n");
     printf ("[1] - Render attraction force\n");
-    printf ("[2] - Render viscous environment\n");
     printf ("[x] - Exit application\n");
     printf ("\n\n");
 
@@ -326,11 +330,13 @@ if(numHapticDevices != 2){
     while (i < numHapticDevices)
     {
 
+		//inicjujemy device na podstawie indeksu (mozliwe jest inicjowanie po nazwie, zapisanej w 
+		//hdal.ini - domyslna sciezka C:\Program Files\Novint\Falcon\HDAL\config w tym przykladzie po nazwie nie udalo sie zainicjowac..
 		haptic[i].handle = hdlInitIndexedDevice(i);
 
-		// Init device data
-		haptic[i].pos.zero();
-		haptic[i].vel.zero();
+		//przypisujemy startowe - zerowe - wartosci kazdemu urzadzeniu
+		haptic[i].position.zero();
+		haptic[i].velocity.zero();
 		haptic[i].error.zero();
 		haptic[i].time = 0;
 
@@ -341,7 +347,7 @@ if(numHapticDevices != 2){
 		}
 
         // create a cursor by setting its radius
-        cShapeSphere* newCursor = new cShapeSphere(0.000000001);
+        cShapeSphere* newCursor = new cShapeSphere(0.01);
 
         // add cursor to the world
         world->addChild(newCursor);
@@ -466,7 +472,7 @@ void resizeWindow(int w, int h)
 void keySelect(unsigned char key, int x, int y)
 {
     // escape key
-    if ((key == 27) || (key == 'x'))
+    if ((key == 27) || (key == 'x') || (key == 'X'))
     {
         // close everything
         close();
@@ -489,20 +495,20 @@ void keySelect(unsigned char key, int x, int y)
         }
     }
 
-	if (key == '[')
+	if (key == '8')
 		Kp -= 10;
-	if (key == ']')
+	if (key == '9')
 		Kp += 10;
-	if (key == 'l')
+	if (key == '5')
 		Ki -= .1;
-	if (key == ';')
+	if (key == '6')
 		Ki += .1;
-	if (key == ',')
+	if (key == '2')
 		Kd -= 1;
-	if (key == '.')
+	if (key == '3')
 		Kd += 1;
 	if (key == 'e')
-		EnableHaptics = !EnableHaptics;
+		enable_haptic = !enable_haptic;
 }
 
 //---------------------------------------------------------------------------
@@ -549,31 +555,28 @@ void close(void)
 void updateGraphics(void)
 {
     // update content of position label
-	double newTime = clock->getCurrentTimeSeconds();
+	double actual_time = clock->getCurrentTimeSeconds();
     for (int i=0; i<numHapticDevices; i++)
     {
-        // read position of device an convert into millimeters
-		cVector3d pos;
-		double positionServo[3];
+		//tymczasowa pozycja do wyswietlenia na ekranie
+		cVector3d tmp_position;
 
-		//hdlToolPosition(positionServo);
-		pos = haptic[i].pos;
+		tmp_position = haptic[i].position;
 
-        //hapticDevices[i]->getPosition(pos);
-        //pos.mul(1000);
-
+		//konwertujemy z metrow na mm
+		tmp_position.mul(1000);
 
         // create a string that concatenates the device number and its position.
         string strID;
         cStr(strID, i);
         string strLabel = "#" + strID + "  x: ";
-        cStr(strLabel, pos.x, 5);
+        cStr(strLabel, tmp_position.x, 5);
         strLabel = strLabel + "   y: ";
-        cStr(strLabel, pos.y, 5);
+        cStr(strLabel, tmp_position.y, 5);
         strLabel = strLabel + "  z: ";
-        cStr(strLabel, pos.z, 5);
+        cStr(strLabel, tmp_position.z, 5);
 		strLabel = strLabel + "  t: ";
-		cStr(strLabel, newTime, 2);
+		cStr(strLabel, actual_time, 2);
 
 		strLabel = strLabel + "  Kp: ";
 		cStr(strLabel, Kp, 2);
@@ -587,11 +590,11 @@ void updateGraphics(void)
         labels[i]->m_string = strLabel;
 
 		string strLabel2 = "";
-		cStr(strLabel2, pos.x, 5);
+		cStr(strLabel2, tmp_position.x, 5);
 		strLabel2 += " ";
-		cStr(strLabel2, pos.y, 5);
+		cStr(strLabel2, tmp_position.y, 5);
 		strLabel2 += " ";
-		cStr(strLabel2, pos.z, 5);
+		cStr(strLabel2, tmp_position.z, 5);
 		strLabel2 += " ";
 		cStr(strLabel2, clock->getCurrentTimeSeconds(), 5);
 		strLabel2 += "\n";
@@ -626,44 +629,52 @@ void updateHaptics(void)
 			cSleepMs(9);
         // for each device
         int i=0;
-		double newTime = clock->getCurrentTimeSeconds();
+		double actual_time = clock->getCurrentTimeSeconds();
         while (i < numHapticDevices)
         {
+			//czynimy aktywnym urzadzeniem ten o numerze 'i'
 			hdlMakeCurrent(haptic[i].handle);
 
-            // read position of haptic device
-            cVector3d newPosition;
-			cVector3d errorPosition;
-            //hapticDevices[i]->getPosition(newPosition);
-			double positionServo[3];
-			//double force[3];
-			hdlToolPosition(positionServo);
-			newPosition.x = positionServo[0];
-			newPosition.y = positionServo[1];
-			newPosition.z = positionServo[2];
+            //wektory na pozycje i roznice pozycji
+            cVector3d actual_position;
+			cVector3d error_position;
+
+			//biblioteka hdal odzekuje wektora indeksowanego [3]
+			double tool_position[3];
+
+			hdlToolPosition(tool_position);
+
+			actual_position.x = tool_position[0];
+			actual_position.y = tool_position[1];
+			actual_position.z = tool_position[2];
 
 			
 
             // update position and orientation of cursor
-            cursors[i]->setPos(newPosition);
-            //cursors[i]->setRot(newRotation);
+            cursors[i]->setPos(actual_position);
 
-            // read linear velocity from device
-            cVector3d linearVelocity;
-			cVector3d errorVelocity;
-			newPosition.subr(haptic[i].pos, linearVelocity);
-			double interval = newTime - haptic[i].time;
-			//cout<<interval<<endl;
-			if (interval>0)
-				linearVelocity.div(interval);
-			else
-				linearVelocity.zero();
-            //hapticDevices[i]->getLinearVelocity(linearVelocity);
+            //obliczamy predkosc
+            cVector3d actual_velocity;
+			cVector3d error_velocity;
 
+			//subr - roznica miedzy aktualnym (actual_position) a haptic[i].position, zapisana do actual_velocity
+			actual_position.subr(haptic[i].position, actual_velocity);
+
+			//roznica miedzy ostatnim zapisanym czasem a aktualnym
+			double interval = actual_time - haptic[i].time;
+
+			//obliczenie predkosci na podstawie roznicy polozen w czasie interval
+			if (interval>0){
+
+				actual_velocity.div(interval);
+			}
+			else{
+				actual_velocity.zero();
+			}
 			
             // update arrow
-            velocityVectors[i]->m_pointA = newPosition;
-            velocityVectors[i]->m_pointB = cAdd(newPosition, linearVelocity);
+            velocityVectors[i]->m_pointA = actual_position;
+            velocityVectors[i]->m_pointB = cAdd(actual_position, actual_velocity);
 
 
             // compute a reaction force
@@ -672,27 +683,28 @@ void updateHaptics(void)
             // apply force field
             if (useForceField)
             {
-				if(newTime<EndTime)
+				if(actual_time < end_time)
 				{
 					//algorytm PID w C zaczerpniety z
 					//http://www.embeddedheaven.com/pid-control-algorithm-c-language.htm
 
 					//obliczamy roznice polozen i predkosci dla proporcjonalnego i rozniczkujacego
-					errorPosition = haptic[1-i].pos - newPosition;
-					errorVelocity = haptic[1-i].vel - linearVelocity;
+					error_position = haptic[1-i].position - actual_position;
+					error_velocity = haptic[1-i].velocity - actual_velocity;
 
 					//obliczamy wartosc dla czlonu calkujacego
-					haptic[i].error +=errorPosition;
+					haptic[i].error +=error_position;
 
 					//obliczamy sile jaka nalezy wygenerowac
-					force[0] = Kp*errorPosition.x + Kd*errorVelocity.x + Ki*haptic[i].error.x;
-					force[1] = Kp*errorPosition.y + Kd*errorVelocity.y + Ki*haptic[i].error.y;
-					force[2] = Kp*errorPosition.z + Kd*errorVelocity.z + Ki*haptic[i].error.z;
+					force[0] = Kp*error_position.x + Kd*error_velocity.x + Ki*haptic[i].error.x;
+					force[1] = Kp*error_position.y + Kd*error_velocity.y + Ki*haptic[i].error.y;
+					force[2] = Kp*error_position.z + Kd*error_velocity.z + Ki*haptic[i].error.z;
 
 
 				}
-				if (i==1 && !EnableHaptics)
+				if (i==1 && !enable_haptic)
 				{
+					//brak sprzezenia od sily - falconowi 1 dajemy sily = 0, mozemy nim tylko zadawac ruch, kopiowany na drugim falconie
 					force[0] = 0;
 					force[1] = 0;
 					force[2] = 0;
@@ -700,13 +712,13 @@ void updateHaptics(void)
 				}
 
 
-				if(errorPosition.length() > 0.002 && errorVelocity.length() > 0.001){
+				if(error_position.length() > 0.002 && error_velocity.length() > 0.001){
 
 					//aplikujemy sily tylko gdy roznica polozen jest wieksza od >x< i roznica predkoscy od >y<
 					hdlSetToolForce(force);
 
 					//wyswietlamy roznice polozen - printf tutaj i w else doskonale wplywa na 'stabilnosc' falconow :)
-					printf("%lf\t%lf\t%lf\t, %lf\t%lf\t%lf\t\n", errorPosition.x,errorPosition.y,errorPosition.z, errorVelocity.x,errorVelocity.y,errorVelocity.z);
+					printf("%lf\t%lf\t%lf\t, %lf\t%lf\t%lf\t\n", error_position.x,error_position.y,error_position.z, error_velocity.x,error_velocity.y,error_velocity.z);
 
 				} else{
 
@@ -714,9 +726,10 @@ void updateHaptics(void)
 				}
 
 
-				haptic[i].pos = newPosition;
-				haptic[i].vel = linearVelocity;
-				haptic[i].time = newTime;
+				//aktualizujemy dane
+				haptic[i].position = actual_position;
+				haptic[i].velocity = actual_velocity;
+				haptic[i].time = actual_time;
 				haptic[i].force.x = force[0];
 				haptic[i].force.y = force[1];
 				haptic[i].force.z = force[2];
@@ -725,16 +738,10 @@ void updateHaptics(void)
 
             // increment counter
             i++;
-
-
         }
-
     }
     
     // exit haptics thread
-
-
-
     simulationFinished = true;
 }
 
