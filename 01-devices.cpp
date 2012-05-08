@@ -25,29 +25,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include "timers/CPrecisionClock.h"
-#include <iostream>
-#include <fstream>
-using namespace std;
+
 // HDAL
 #include <hdl/hdl.h>
 #include <hdlu/hdlu.h>
-#include <string>
-
-#include <cstdlib>
 
 
 //---------------------------------------------------------------------------
 #include "chai3d.h"
 //---------------------------------------------------------------------------
-#include <windows.h>
+
 //---------------------------------------------------------------------------
 // DECLARED CONSTANTS
 //---------------------------------------------------------------------------
 
-double force[2][3];
-const int AVG = 5;
-double avg_force[2][3][AVG];
-double last_force[2][3];
+//w miejscach gdzie mamy wartosci w tablicach indeksowanych 0,1,2 odpowiadaja osiom x,y,z
+double force[3];
 // initial size (width/height) in pixels of the display window
 const int WINDOW_SIZE_W         = 600;
 const int WINDOW_SIZE_H         = 600;
@@ -58,19 +51,16 @@ const int OPTION_WINDOWDISPLAY  = 2;
 
 // maximum number of haptic devices supported in this demo
 const int MAX_DEVICES           = 8;
-const double EndTime			= 3600;
-const double StartTime			= 1;
+
+//ustawiamy maksymalny czas, po ktorym nie generujemy sil na falcony - dla bezpieczenstwa!
+const double end_time			= 300;
 
 
 //---------------------------------------------------------------------------
 // DECLARED VARIABLES
 //---------------------------------------------------------------------------
-// Handle to device
-HDLDeviceHandle deviceHandle[MAX_DEVICES];
 
-// Handle to Contact Callback
-HDLServoOpExitCode servoOp;
-
+//potrzebujemy zegar, uplyw czasu i zmiana polozen pozwala nam okreslic predkosc - uzywane do obliczania wspolczynnikow PID
 cPrecisionClock* clock;
 
 // a world that contains all objects of the virtual environment
@@ -89,14 +79,10 @@ cBitmap* logo;
 int displayW  = 0;
 int displayH  = 0;
 
-double Kp = 140.0; // [N/m] 600
-double Kd = 1.0; // 10
+//startowe ustawienia dla regulatora PID (w odpowiednich jednostkach:)
+double Kp = 140.0;
+double Kd = 1.0;
 double Ki = 3;
-
-
-const int MAX_FREQ_NUM = 1;
-double Freq[MAX_FREQ_NUM];
-int Freq_count = 0;
 
 // a haptic device handler
 cHapticDeviceHandler* handler;
@@ -128,37 +114,36 @@ bool simulationRunning = false;
 // root resource path
 string resourceRoot;
 
-// damping mode ON/OFF
-bool useDamping = true;
-
 // force field mode ON/OFF
 bool useForceField = false;
 
 // has exited haptics simulation thread
 bool simulationFinished = false;
 
-bool write_to_file = true;
+//zmienna (modyfikowana przez 'e') - nie generujemy sil na jednym falconie, brak spzezenia od sily - ale drugi nasladuje jego ruch
+bool enable_haptic = true;
 
-bool EnableHaptics = true;
 
-
-ofstream output[MAX_DEVICES];
-
+/*
+Opis struktury
+handle - 'wskaznik' na dane urzadzenie, otrzymany hdlInitIndexedDevice() (mozliwe jest po nazwie, ale nie dzialalo prawidlowo
+position - odczytana pozycja
+velocity - obliczona predkosc - na podstawie zmiany polozenia i czasu
+time - czas jaki uplynal od uruchomienia symulacji do ostatniego sprawdzenia stanu danego falcona, majac ten czas mozemy na podstawie aktualnego czasu okreslic roznice czasu, a majac tez roznice polozen - obliczymy predkosc :)
+error - wektor x,y,z - roznica polozen obu urzadzen - 'aktualny' - 'ten drugi' na kazdej osi :)
+force - wektor sil, w sumie nie uzywany
+*/
 struct HapticDevice
 {
     HDLDeviceHandle handle;
-    double workspaceDims[6];
-    cVector3d pos;
-	cVector3d vel;
+    cVector3d position;
+	cVector3d velocity;
 	double time;
-	cVector3d error; //Distance from desired trajectory
-    double transformMat[16];
+	cVector3d error;
     cVector3d force;
-    bool   button;
-	char* devicename;
 };
 
-HapticDevice hd[2];
+HapticDevice haptic[2];
 
 //---------------------------------------------------------------------------
 // DECLARED MACROS
@@ -188,13 +173,8 @@ void updateGraphics(void);
 
 // main haptics loop
 void updateHaptics(void);
-double zaokraglanie(double x);
-int empty_avg_force();
-double calc_avg_force(int which_falcon, int which_axis,double last_force);
-void print_avg_force();
 
-cVector3d gravity_compensate(cVector3d);
-FILE *plik;
+
 //===========================================================================
 /*
     DEMO:    device.cpp
@@ -219,8 +199,6 @@ FILE *plik;
 
 int main(int argc, char* argv[])
 {
-	plik=fopen("baza_RD.txt", "w"); 
-
     //-----------------------------------------------------------------------
     // INITIALIZATION
     //-----------------------------------------------------------------------
@@ -234,7 +212,6 @@ int main(int argc, char* argv[])
     printf ("\n\n");
     printf ("Keyboard Options:\n\n");
     printf ("[1] - Render attraction force\n");
-    printf ("[2] - Render viscous environment\n");
     printf ("[x] - Exit application\n");
     printf ("\n\n");
 
@@ -329,12 +306,6 @@ int main(int argc, char* argv[])
     // limit the number of devices to MAX_DEVICES
     numHapticDevices = cMin(numHapticDevices, MAX_DEVICES);
 
-	empty_avg_force();
-	//print_avg_force();
-
-	hd[0].devicename = "FALCON_1";
-	hd[1].devicename = "FALCON_2";
-
     // create a node on which we will attach small labels that display the
     // position of each haptic device
     rootLabels = new cGenericObject();
@@ -352,69 +323,31 @@ int main(int argc, char* argv[])
     // for each available haptic device, create a 3D cursor
     // and a small line to show velocity
     int i = 0;
-	std::cout << "Number of devices: " <<numHapticDevices <<std::endl;
-
-	double Freqmin;
-	double Freqmax;
-
-	cout<<"Enter the input frequency range"<<endl;
-	cout<<"Min: ";
-	cin>>Freqmin;
-	cout<<"Max: ";
-	cin>>Freqmax;
-
-	Freq[0] = Freqmin;
-	for(int i = 1; i < MAX_FREQ_NUM; i++)
-	{
-		Freq[i] = Freq[i-1] + (Freqmax - Freqmin)/(MAX_FREQ_NUM-1);
-
-	}
+	printf("Liczba podlaczonych hapticow %d\n", numHapticDevices);
+if(numHapticDevices != 2){
+	exit(1);
+}
     while (i < numHapticDevices)
     {
-        // get a handle to the next haptic device
-        //cGenericHapticDevice* newHapticDevice;
-        //handler->getDevice(newHapticDevice, i);
 
+		//inicjujemy device na podstawie indeksu (mozliwe jest inicjowanie po nazwie, zapisanej w 
+		//hdal.ini - domyslna sciezka C:\Program Files\Novint\Falcon\HDAL\config w tym przykladzie po nazwie nie udalo sie zainicjowac..
+		haptic[i].handle = hdlInitIndexedDevice(i);
 
-		/*switch (i) {
-			case 0:
-				std::cout << "HDAL: hdlInitDevice 1" << std::endl;
-				deviceHandle[i] = hdlInitNamedDevice("FALCON_1");
-				break;
-			case 1:
-				std::cout << "HDAL: hdlInitDevice 2" << std::endl;
-				deviceHandle[i] = hdlInitNamedDevice("FALCON_2");
-				break;
-		}*/
-		//hd[i].handle = hdlInitNamedDevice(hd[i].devicename);
-		hd[i].handle = hdlInitIndexedDevice(i);
+		//przypisujemy startowe - zerowe - wartosci kazdemu urzadzeniu
+		haptic[i].position.zero();
+		haptic[i].velocity.zero();
+		haptic[i].error.zero();
+		haptic[i].time = 0;
 
-		// Init device data
-		hd[i].pos.zero();
-		hd[i].vel.zero();
-		hd[i].error.zero();
-		hd[i].time = 0;
-
-		if (hd[i].handle == HDL_INVALID_HANDLE)
+		if (haptic[i].handle == HDL_INVALID_HANDLE)
 		{
-			std::cout << "Could not open device: HDL_INVALID_HANDLE" << std::endl;
+			printf("Blad przy podlaczeniu z falconem %d: HDL_INVALID_HANDLE",i);
 			exit(1);
 		}
 
-        // open connection to haptic device
-        //newHapticDevice->open();
-
-		// initialize haptic device
-		//newHapticDevice->initialize();
-
-        // store the handle in the haptic device table
-        //hapticDevices[i] = newHapticDevice;
-
-        // retrieve information about the current haptic device
-        //cHapticDeviceInfo info = newHapticDevice->getSpecifications();
-
         // create a cursor by setting its radius
-        cShapeSphere* newCursor = new cShapeSphere(0.000000001);
+        cShapeSphere* newCursor = new cShapeSphere(0.01);
 
         // add cursor to the world
         world->addChild(newCursor);
@@ -433,6 +366,7 @@ int main(int argc, char* argv[])
         string strID;
         cStr(strID, i);
         string strDevice = "#" + strID + " - ";
+		//string strDevice = "#" + strID + " - " +info.m_modelName;
 
         // attach a small label next to the cursor to indicate device information
         cLabel* newLabel = new cLabel();
@@ -441,17 +375,6 @@ int main(int argc, char* argv[])
         newLabel->setPos(0.00, 0.02, 0.00);
         newLabel->m_fontColor.set(1.0, 1.0, 1.0);
 
-        // if the device provided orientation sensing (stylus), a reference
-        // frame is displayed
-        /*if (info.m_sensedRotation == true)
-        {
-            // display a reference frame
-            newCursor->setShowFrame(true);
-
-            // set the size of the reference frame
-            newCursor->setFrameSize(0.05, 0.05);
-        }*/
-
         // crate a small label to indicate the position of the device
         cLabel* newPosLabel = new cLabel();
         rootLabels->addChild(newPosLabel);
@@ -459,36 +382,13 @@ int main(int argc, char* argv[])
         newPosLabel->m_fontColor.set(0.6, 0.6, 0.6);
         labels[i] = newPosLabel;
 
-
-		string strLabel = "H:\\plik_";
-		strLabel += hd[i].devicename;
-		strLabel += "\\f";
-
-		cStr(strLabel, Freq[Freq_count], 2);
-
-		strLabel += ".txt";
-		const char * c = strLabel.c_str();
-
-		if (write_to_file)
-			cout<<"Output file name is: "<<strLabel<<endl;
-
-		output[i].open (c);
         // increment counter
         i++;
     }
 
-	// starts servo and all haptic devices.
-	std::cout << "HDAL: hdlStart" << std::endl;
+	//Start servo and all haptic devices, uzywajac Haptic Device Abstraction Layer
+	printf("HDAL: hdlStart()");
 	hdlStart();
-
-	// sets callback for the nonblocking servo loop
-	//std::cout << "HDAL: hdlCreateServoOp" << std::endl;
-	//hdlCreateServoOp(NonBlockingServoOpCallback, NULL, bNonBlocking);
-
-	// make a specific haptic device current
-
-    // here we define the material properties of the cursor when the
-    // user button of the device end-effector is engaged (ON) or released (OFF)
 
     // a light orange material color
     matCursorButtonOFF.m_ambient.set(0.5, 0.2, 0.0);
@@ -499,9 +399,6 @@ int main(int argc, char* argv[])
     matCursorButtonON.m_ambient.set(0.1, 0.1, 0.4);
     matCursorButtonON.m_diffuse.set(0.3, 0.3, 0.8);
     matCursorButtonON.m_specular.set(1.0, 1.0, 1.0);
-
-
-
 
 
     //-----------------------------------------------------------------------
@@ -575,7 +472,7 @@ void resizeWindow(int w, int h)
 void keySelect(unsigned char key, int x, int y)
 {
     // escape key
-    if ((key == 27) || (key == 'x'))
+    if ((key == 27) || (key == 'x') || (key == 'X'))
     {
         // close everything
         close();
@@ -598,48 +495,20 @@ void keySelect(unsigned char key, int x, int y)
         }
     }
 
-	if (key == '[')
+	if (key == '8')
 		Kp -= 10;
-	if (key == ']')
+	if (key == '9')
 		Kp += 10;
-	if (key == 'l')
+	if (key == '5')
 		Ki -= .1;
-	if (key == ';')
+	if (key == '6')
 		Ki += .1;
-	if (key == ',')
+	if (key == '2')
 		Kd -= 1;
-	if (key == '.')
+	if (key == '3')
 		Kd += 1;
 	if (key == 'e')
-		EnableHaptics = !EnableHaptics;
-
-	if (key == 'q')
-		last_force[1][0] -= 0.5;
-	if (key == 'w')
-		last_force[1][0] += 0.5;
-
-	if (key == 'a')
-		last_force[1][1] -= 0.5;
-	if (key == 's')
-		last_force[1][1] += 0.5;
-
-	if (key == 'c')
-		last_force[1][2] -= 0.5;
-	if (key == 'v')
-		last_force[1][2] += 0.5;
-    // option 2:
-    /*if (key == '2')
-    {
-        useDamping = !useDamping;
-        if (useDamping)
-        {
-            printf ("- Enable viscosity\n");
-        }
-        else
-        {
-            printf ("- Disable viscosity\n");
-        }
-    }*/
+		enable_haptic = !enable_haptic;
 }
 
 //---------------------------------------------------------------------------
@@ -674,11 +543,9 @@ void close(void)
     int i=0;
     while (i < numHapticDevices)
     {
-        //hd[i]->close();
-		//hdlDestroyServoOp();
+		//stopujemy falcony za pomoca funkcji hdal
 		hdlStop();
-		hdlUninitDevice(hd[i].handle);
-		output[i].close();
+		hdlUninitDevice(haptic[i].handle);
         i++;
     }
 }
@@ -687,34 +554,29 @@ void close(void)
 
 void updateGraphics(void)
 {
-
     // update content of position label
-	double newTime = clock->getCurrentTimeSeconds();
+	double actual_time = clock->getCurrentTimeSeconds();
     for (int i=0; i<numHapticDevices; i++)
     {
-        // read position of device an convert into millimeters
-		//hdlMakeCurrent(deviceHandle[i]);
-		cVector3d pos;
-		double positionServo[3];
+		//tymczasowa pozycja do wyswietlenia na ekranie
+		cVector3d tmp_position;
 
-		//hdlToolPosition(positionServo);
-		pos = hd[i].force;
+		tmp_position = haptic[i].position;
 
-        //hapticDevices[i]->getPosition(pos);
-        //pos.mul(1000);
-
+		//konwertujemy z metrow na mm
+		tmp_position.mul(1000);
 
         // create a string that concatenates the device number and its position.
         string strID;
         cStr(strID, i);
         string strLabel = "#" + strID + "  x: ";
-        cStr(strLabel, pos.x, 5);
+        cStr(strLabel, tmp_position.x, 5);
         strLabel = strLabel + "   y: ";
-        cStr(strLabel, pos.y, 5);
+        cStr(strLabel, tmp_position.y, 5);
         strLabel = strLabel + "  z: ";
-        cStr(strLabel, pos.z, 5);
+        cStr(strLabel, tmp_position.z, 5);
 		strLabel = strLabel + "  t: ";
-		cStr(strLabel, newTime, 2);
+		cStr(strLabel, actual_time, 2);
 
 		strLabel = strLabel + "  Kp: ";
 		cStr(strLabel, Kp, 2);
@@ -728,17 +590,15 @@ void updateGraphics(void)
         labels[i]->m_string = strLabel;
 
 		string strLabel2 = "";
-		cStr(strLabel2, pos.x, 5);
+		cStr(strLabel2, tmp_position.x, 5);
 		strLabel2 += " ";
-		cStr(strLabel2, pos.y, 5);
+		cStr(strLabel2, tmp_position.y, 5);
 		strLabel2 += " ";
-		cStr(strLabel2, pos.z, 5);
+		cStr(strLabel2, tmp_position.z, 5);
 		strLabel2 += " ";
 		cStr(strLabel2, clock->getCurrentTimeSeconds(), 5);
 		strLabel2 += "\n";
 
-		if (write_to_file)
-			output[i]<<strLabel2;
     }
 
     // render world
@@ -751,38 +611,6 @@ void updateGraphics(void)
     GLenum err;
     err = glGetError();
     if (err != GL_NO_ERROR) printf("Error:  %s\n", gluErrorString(err));
-	if (newTime>=EndTime)
-	{
-
-		clock->reset();
-
-		Freq_count++;
-		if (Freq_count<MAX_FREQ_NUM)
-		{
-			for (int i = 0; i<numHapticDevices; i++)
-			{
-				output[i].close();
-				hd[i].error.zero();
-				string strLabel = "H:\\plik_";
-				strLabel += hd[i].devicename;
-				strLabel += "\\f";
-				cStr(strLabel, Freq[Freq_count], 2);
-
-				strLabel += ".txt";
-				const char * c = strLabel.c_str();
-
-				if (write_to_file)
-					cout<<"Output file name is: "<<strLabel<<endl;
-
-				output[i].open (c);
-			}
-		}
-		else
-		{
-			simulationRunning = false;
-		}
-
-	}
 
     // inform the GLUT window to call updateGraphics again (next frame)
     if (simulationRunning)
@@ -795,371 +623,126 @@ void updateGraphics(void)
 
 void updateHaptics(void)
 {
-	//plik=fopen("baza_RD.txt", "w"); 
     // main haptic simulation loop
     while(simulationRunning)
     {
-			Sleep(8);
+			cSleepMs(9);
         // for each device
         int i=0;
-		double newTime = clock->getCurrentTimeSeconds();
+		double actual_time = clock->getCurrentTimeSeconds();
         while (i < numHapticDevices)
         {
-			hdlMakeCurrent(hd[i].handle);
+			//czynimy aktywnym urzadzeniem ten o numerze 'i'
+			hdlMakeCurrent(haptic[i].handle);
 
-            // read position of haptic device
-            cVector3d newPosition;
-			cVector3d errorPosition;
-            //hapticDevices[i]->getPosition(newPosition);
-			double positionServo[3];
-			//double force[3];
-			hdlToolPosition(positionServo);
-			newPosition.x = positionServo[2];
-			newPosition.y = positionServo[0];
-			newPosition.z = positionServo[1];
+            //wektory na pozycje i roznice pozycji
+            cVector3d actual_position;
+			cVector3d error_position;
+
+			//biblioteka hdal odzekuje wektora indeksowanego [3]
+			double tool_position[3];
+
+			hdlToolPosition(tool_position);
+
+			actual_position.x = tool_position[0];
+			actual_position.y = tool_position[1];
+			actual_position.z = tool_position[2];
 
 			
 
             // update position and orientation of cursor
-            cursors[i]->setPos(newPosition);
-            //cursors[i]->setRot(newRotation);
+            cursors[i]->setPos(actual_position);
 
-            // read linear velocity from device
-            cVector3d linearVelocity;
-			cVector3d errorVelocity;
-			newPosition.subr(hd[i].pos, linearVelocity);
-			double interval = newTime - hd[i].time;
-			//cout<<interval<<endl;
-			if (interval>0)
-				linearVelocity.div(interval);
-			else
-				linearVelocity.zero();
-            //hapticDevices[i]->getLinearVelocity(linearVelocity);
+            //obliczamy predkosc
+            cVector3d actual_velocity;
+			cVector3d error_velocity;
 
+			//subr - roznica miedzy aktualnym (actual_position) a haptic[i].position, zapisana do actual_velocity
+			actual_position.subr(haptic[i].position, actual_velocity);
+
+			//roznica miedzy ostatnim zapisanym czasem a aktualnym
+			double interval = actual_time - haptic[i].time;
+
+			//obliczenie predkosci na podstawie roznicy polozen w czasie interval
+			if (interval>0){
+
+				actual_velocity.div(interval);
+			}
+			else{
+				actual_velocity.zero();
+			}
 			
             // update arrow
-            velocityVectors[i]->m_pointA = newPosition;
-            velocityVectors[i]->m_pointB = cAdd(newPosition, linearVelocity);
+            velocityVectors[i]->m_pointA = actual_position;
+            velocityVectors[i]->m_pointB = cAdd(actual_position, actual_velocity);
 
 
             // compute a reaction force
             cVector3d newForce (0,0,0);
-			double calc_force[3];
+
             // apply force field
             if (useForceField)
             {
-				if (newTime<StartTime)
+				if(actual_time < end_time)
 				{
-					newPosition.add(0, 0, 0);
-					calc_force[0] = -Kp*newPosition.y - 2*Kd*linearVelocity.y;
-					calc_force[1] = -Kp*newPosition.z - 2*Kd*linearVelocity.z;
-					calc_force[2] = -Kp*newPosition.x - 2*Kd*linearVelocity.x;
+					//algorytm PID w C zaczerpniety z
+					//http://www.embeddedheaven.com/pid-control-algorithm-c-language.htm
+
+					//obliczamy roznice polozen i predkosci dla proporcjonalnego i rozniczkujacego
+					error_position = haptic[1-i].position - actual_position;
+					error_velocity = haptic[1-i].velocity - actual_velocity;
+
+					//obliczamy wartosc dla czlonu calkujacego
+					haptic[i].error +=error_position;
+
+					//obliczamy sile jaka nalezy wygenerowac
+					force[0] = Kp*error_position.x + Kd*error_velocity.x + Ki*haptic[i].error.x;
+					force[1] = Kp*error_position.y + Kd*error_velocity.y + Ki*haptic[i].error.y;
+					force[2] = Kp*error_position.z + Kd*error_velocity.z + Ki*haptic[i].error.z;
+
+
 				}
-				else if(newTime<EndTime)
+				if (i==1 && !enable_haptic)
 				{
-
-
-					/*errorPosition = newPosition;
-					errorVelocity = linearVelocity;
-					//cout<<errorVelocity.y<<endl;
-					errorPosition.add(0, -0.04*cSinRad(2*3.14/T*(newTime-1)), -0.04*cCosRad(2*3.14/T*(newTime-1)));	
-					errorVelocity.add(0, -0.04*2*3.14/T*cCosRad(2*3.14/T*(newTime-1)),0.04*2*3.14/T*cSinRad(2*3.14/T*(newTime-1)));
-					hd[i].error +=errorPosition;
-					linearVelocity.add(0, 0, 0);
-					force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
-					force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
-					force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;*/
-
-errorPosition = newPosition - hd[1-i].pos;
-					//errorPosition.add(0, -hd[1-i].pos.y, 0);
-					errorVelocity = linearVelocity - hd[1-i].vel;
-					//errorVelocity.add(0, -hd[1-i].vel.y, 0);
-					hd[i].error +=errorPosition;
-
-					calc_force[0] = -Kp*errorPosition.y - Kd*errorVelocity.y - Ki*hd[i].error.y;
-					calc_force[1] = -Kp*errorPosition.z - Kd*errorVelocity.z - Ki*hd[i].error.z;
-					calc_force[2] = -Kp*errorPosition.x - Kd*errorVelocity.x - Ki*hd[i].error.x;
-
-
-				}
-				if (i==1 && !EnableHaptics)
-				{
-					double f = Freq[Freq_count]; // in Hz
-					double T = 1/f;
-					//force[0] += 5*cSinRad(2*3.14/T*(newTime-StartTime));
-					force[i][0] = 0;
-					force[i][1] = 0;
-					force[i][2] = 0;
+					//brak sprzezenia od sily - falconowi 1 dajemy sily = 0, mozemy nim tylko zadawac ruch, kopiowany na drugim falconie
+					force[0] = 0;
+					force[1] = 0;
+					force[2] = 0;
 
 				}
 
 
+				if(error_position.length() > 0.002 && error_velocity.length() > 0.001){
 
-				/*cVector3d Fg = gravity_compensate(newPosition);
-				force[0] += Fg.y;
-				force[1] += Fg.z;
-				force[2] += Fg.x;*/
+					//aplikujemy sily tylko gdy roznica polozen jest wieksza od >x< i roznica predkoscy od >y<
+					hdlSetToolForce(force);
 
+					//wyswietlamy roznice polozen - printf tutaj i w else doskonale wplywa na 'stabilnosc' falconow :)
+					printf("%lf\t%lf\t%lf\t, %lf\t%lf\t%lf\t\n", error_position.x,error_position.y,error_position.z, error_velocity.x,error_velocity.y,error_velocity.z);
 
-				force[i][0]= calc_force[0];// calc_avg_force(i,0, calc_force[0]);// (calc_force[0] + force[i][0])/2;
-				force[i][1]= calc_force[1];// calc_avg_force(i,1, calc_force[1]);// (calc_force[1] + force[i][1])/2;
-				force[i][2]= calc_force[2];// calc_avg_force(i,2, calc_force[2]);// (calc_force[2] + force[i][2])/2;
-				print_avg_force();
-				//czy uzyc stalej sily do testow - zmiana wart sil - q,w, a,s, z,x 
-				int const_force = false;
+				} else{
 
-				//ktory falcon 
-				int which_falcon = 1;
-				if(const_force){
-					force[i][0] = last_force[i][0];
-					force[i][1] = last_force[i][1];
-					force[i][2] = last_force[i][2];
-					if(i%2 == 0){
-
-					force[i][0] +=0.1;
-					force[i][1] +=0.1;
-					force[i][2] +=0.1;
-					} else{
-
-					//force[i][0] -=0.1;
-					//force[i][1] -=0.1;
-					//force[i][2] -=0.1;
-					}
+					printf("roznica polozen i predkosci mala!\n");
 				}
 
-			printf("pos %d %lf %lf %lf %lf %lf\n", i, newPosition.x, newPosition.y, newPosition.z, errorPosition.length(), errorVelocity.length());
-//fprintf(plik,"%d\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, newPosition.x, newPosition.y, newPosition.z, linearVelocity.x, linearVelocity.y, linearVelocity.z,
-				//calc_force[0],calc_force[1],calc_force[2]);
-				if(errorPosition.length() > 0.008 && errorVelocity.length() > 0.001){
 
-					hdlSetToolForce(force[i]);
-					//Sleep(1);
-
-				}
-				hd[i].pos = newPosition;
-				hd[i].vel = linearVelocity;
-				hd[i].time = newTime;
-				hd[i].force.x = force[i][2];
-				hd[i].force.y = force[i][0];
-				hd[i].force.z = force[i][1];
+				//aktualizujemy dane
+				haptic[i].position = actual_position;
+				haptic[i].velocity = actual_velocity;
+				haptic[i].time = actual_time;
+				haptic[i].force.x = force[0];
+				haptic[i].force.y = force[1];
+				haptic[i].force.z = force[2];
 
 			}
 
             // increment counter
             i++;
-
-
         }
-
     }
     
     // exit haptics thread
-
-
-
     simulationFinished = true;
 }
 
 //---------------------------------------------------------------------------
-// User defined functions
-cVector3d gravity_compensate(cVector3d newPosition)
-{
-		//Get position of a Falcon end effector in its co-ordinate frame and transfer it to the Base frame
-		//co-ordinate frame
-		const double Pzo = 0.134;	//	Zero-Configuration z-offset
-		double px = (newPosition.y);
-		double py = (newPosition.z);
-		double pz = (newPosition.x) + Pzo;
-
-		/////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Computing the position of point P with respect to individial motor co-ordinate frames
-		//Transfering from Base frame co-ordinate frame to motor co-ordinate frame
-		////////////////////////////////////////////////////////////////////////////////////////////////////////
-		const double r   = 0.03723;	//	Radius of Back Plate
-		const double Pvo = 0.022;   //  Zero-Configuration v-offset
-
-		//Other parameters
-		const double pi = 3.141592653589793;
-		int j;
-
-		//Motor Joint Angles    (Unit: radians)
-		const double phi[3] = {105.0*pi/180.0, -15.0*pi/180.0, -135.0*pi/180.0};
-
-		//Motor co-ordinate frames
-		double Pv[3], Pw[3], Pu[3];
-
-
-		for(j=0;j<3;j++)
-		{
-			Pu[j] = (cos(phi[j]) * px)  + (sin(phi[j])* py)  - r;	
-			Pv[j] = -(sin(phi[j])* px)  + (cos(phi[j]) * py) + Pvo;
-			Pw[j] = pz;
-		}
-
-
-		//////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Computing Inverse Kinematics
-		//////////////////////////////////////////////////////////////////////////////////////////////////////////
-		double T1[3];
-		double L0[3], L1[3], L2[3];
-		double theta1[3], theta2[3], theta3[3]; // Joint Angles
-
-		//Dimensions of different parameters (Unit: meter)
-		const double s  =  0.025;    // Back plate Actuator Offset
-		const double b  =  0.103;    // Length of Parallel Link
-		const double a  =  0.060;    // Length of Curved Link
-		const double d  =  0.011;    // Length of Joint Link    
-		const double c	=  0.0157;	 //	Radius of Front Plate
-
-		for(j=0;j<3;j++)
-		{
-			//Calculating theta3
-			theta3[j] = acos( (Pv[j] - s) /b);
-
-			L0[j] = pow(Pw[j],2.0) + pow(Pu[j],2) + (2.0 * c * Pu[j]) - (4.0 * pow(d,2)) - (pow(b,2) * pow(sin(theta3[j]),2)) - (4.0 * b * d * sin(theta3[j])) - (2.0 * a * Pu[j]) + pow((a-c),2);
-			L1[j] = -4.0 * a * Pw[j];
-			L2[j] = pow(Pw[j],2.0) + pow(Pu[j],2) + (2.0 * c * Pu[j]) - (4.0 * pow(d,2)) - (pow(b,2) * pow(sin(theta3[j]),2)) - (4.0 * b * d * sin(theta3[j])) + (2.0 * a * Pu[j]) + pow((a+c),2);
-			T1[j] = (-L1[j] - sqrt(pow(L1[j],2) - (4.0*L2[j]*L0[j]))) / (2.0*L2[j]);
-
-			//Calculating theta1
-			theta1[j] = 2.0 * atan(T1[j]);
-       
-			//Calculating theta2
-			theta2[j] = atan((Pw[j] - (a * sin(theta1[j])))/(Pu[j] - (a * cos(theta1[j])) + c) );
-		}
-
-		////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Computing the Jacobian Matrix
-		////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		cMatrix3d JF;
-		double JF1[3], JF2[3], JF3[3];
-		for(j=0;j<3;j++)
-		{
-			JF1[j] =	cos(theta2[j]) * sin(theta3[j]) * cos(phi[j])      - cos(theta3[j]) * sin(phi[j]);
-			JF2[j] =	cos(theta3[j]) * cos(phi[j])    + cos(theta2[j]) * sin(theta3[j]) * sin(phi[j]);
-			JF3[j] =	sin(theta2[j]) * sin(theta3[j]);
-		}
-		JF.set(JF1[0],JF2[0],JF3[0],JF1[1],JF2[1],JF3[1],JF1[2],JF2[2],JF3[2]);
-
-		/////////////////////////////////////////////////////
-		cMatrix3d JI;
-		double JI1[3];
-		for(j=0;j<3;j++)
-		{
-			JI1[j] =	a*sin(theta2[j] - theta1[j])*sin(theta3[j]);
-		}
-		JI.set(JI1[0],0.0,0.0,0.0,JI1[1],0.0,0.0,0.0,JI1[2]);
-
-		/////////////////////////////////////////////////////
-		cMatrix3d J;
-		cMatrix3d Jinv;
-		cMatrix3d JIinv;
-		cMatrix3d JT;
-		JI.invertr(JIinv);
-		JIinv.mulr(JF,J);
-		J.transr(JT);
-		cMatrix3d JTinv;
-		JT.invertr(JTinv);
-
-		///////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Computing Gravitational Torque
-		///////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Masses of different parts of Falcon (Units in kilograms)
-		const double me = 0.052;	//  Mass of modified falcon grip
-		const double mc = 0.03278;  //  Mass of moving plate
-		const double mb = 0.00841;  //  Mass of parallel link
-		const double md = 0.01037;  //  Mass of joint link
-		const double ma = 0.08935;  //  Mass of curved link
-	    cVector3d Ga_Torque;        //Gravitational Torque
-		cVector3d Gb_Torque;        //Gravitational Torque
-		cVector3d Gc_Torque;        //Gravitational Torque
-		cVector3d Tg;               //Total gravitational torque
-
-		//Different lengths of Falcon Parts(Units in meter)
-		const double q   = 0.022;   //  Length of center of mass of curved link from motor joint
-
-		//Other variables defined
-		const double g  = 9.815; //Magnitude of Gravity - m/s^2
-
-		double m_a = g * ma * q;
-		Ga_Torque.set( m_a * sin((100.0*3.14/180.0) - theta1[0]) * sin(phi[0]) , m_a * sin((100.0*3.14/180.0) - theta1[1]) * sin(phi[1]) , m_a * sin((100.0*3.14/180.0) - theta1[2]) * sin(phi[2]) );
-
-		double m_b = a * g * (mb + md);
-		Gb_Torque.set( m_b * sin(theta1[0]) * sin(phi[0]) , m_b * sin(theta1[1]) * sin(phi[1]) , m_b * sin(theta1[2]) * sin(phi[2]) );
-		cVector3d Gc_Force;
-		Gc_Force.x = 0.0;
-		Gc_Force.y = (3.0* (mb+md) + mc + me) * g;
-		Gc_Force.z = 0.0;
-		JTinv.mulr(Gc_Force,Gc_Torque);
-
-		// Computing total gravitational torque
-		Tg = Ga_Torque - Gb_Torque + Gc_Torque;
-
-		// Computing the required gravity force from gravitational torque
-		cVector3d Gravity;
-		JT.mulr(Tg,Gravity);
-
-		// Converting from back plate to Falcons Co-ordinate system
-		cVector3d Fg;
-		Fg.set(Gravity.z,Gravity.x,Gravity.y);
-		return Fg;
-}
-
-double zaokraglanie(double x)
-{
- int y = x * 10000; // przesuwamy przecinek o 4 miejsca i pozbywamy sie reszty za przecinkiem - y jest calkowite
- if (y % 10 >= 5) y += 10; // jezeli cyfra jednosci >= 5
- return (y / 10) * 0.001; // usuwamy ostatnia cyfre i zamieniamy na liczbe zmiennoprzecinkowa
-} 
-
-int empty_avg_force(){
-	int haptics = 2;
-
-	//i - liczba haptikow
-	//k - kierunki x,y,z - oznaczone 0,1,2
-	//j - kontener na ostatnie wyniki np 100
-	for(int i = 0; i< haptics; i++){
-		for(int k = 0; k<3; k++){
-
-		for(int j = 0; j< AVG; j++){
-
-			avg_force[i][k][j] = 0;
-		}
-		}
-	}
-	return 1;
-}
-
-double calc_avg_force(int which_haptic, int which_axis,double last_force){
-
-	double tmp_force = 0;
-	//przesun wszystkie wartosci o jedno miejsce 'w dol'
-	for(int i = 0; i < AVG - 1; i++){
-
-		avg_force[which_haptic][which_axis][i] = avg_force[which_haptic][which_axis][i+1];
-	}
-
-	//dodaj na koniec last_force
-	avg_force[which_haptic][which_axis][AVG - 1] = last_force;
-
-	//oblicz srednia
-	for(int i = 0; i < AVG; i++){
-		tmp_force += avg_force[which_haptic][which_axis][i];
-	}
-	return tmp_force/(AVG+1);
-	
-}
-
-void print_avg_force(){
-int haptics = 2;
-	for(int i = 0; i< haptics; i++){
-for(int k = 0; k<3; k++){
-		for(int j = 0; j< AVG; j++){
-
-			fprintf(plik,"%d\t%lf\n",i,avg_force[i][k][j]);
-		}
-}
-		fprintf(plik,"\n");
-	}
-}
-
